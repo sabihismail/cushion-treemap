@@ -162,7 +162,8 @@ const tip = document.getElementById('tip') as HTMLDivElement
 const statusEl = document.getElementById('status') as HTMLSpanElement
 const crumbsEl = document.getElementById('crumbs') as HTMLElement
 
-const tm = new CushionTreemap<DemoNode>(canvas, { isDir })
+// Default to the SpaceSniffer look: folder/file two-tone + crisp bevel + Manila theme.
+const tm = new CushionTreemap<DemoNode>(canvas, { isDir, colorMode: 'folder-file', cushionStyle: 'bevel' })
 
 let current: DemoNode = syntheticDisk()
 
@@ -313,5 +314,9 @@ function setStatus(msg: string, isErr = false) { statusEl.textContent = msg; sta
 function escapeHtml(s: string) { return s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!)) }
 
 // ─── Boot ──────────────────────────────────────────────────────────────────────
-setTheme('auto')
+// Reflect the SpaceSniffer defaults in the controls, then apply the Manila theme.
+colorModeSel.value = 'folder-file'
+cushionSel.value = 'bevel'
+themeSel.value = 'Manila'
+setTheme('Manila')
 load(current, 'Synthetic disk (C:)')

@@ -234,6 +234,12 @@ export class CushionTreemap<T extends TreemapNode = TreemapNode> {
   private hoverGlow = 0         // 0→1 eased hover highlight intensity
   private animRaf: number | null = null
 
+  // Cached base layer: the expensive per-pixel cushion/bevel field. Rebuilt only
+  // when geometry, colors, or shading style change — NOT on hover/fade frames
+  // (those are cheap ctx overlays painted on top of this cached ImageData).
+  private baseImg: ImageData | null = null
+  private baseDirty = true
+
   private root: T | null = null
   private zoomStack: T[] = []
   private layout: LayoutNode<T>[] = []
@@ -303,6 +309,7 @@ export class CushionTreemap<T extends TreemapNode = TreemapNode> {
   setCushionStyle(style: CushionStyle) {
     if (style === this.cushionStyle) return
     this.cushionStyle = style
+    this.baseDirty = true       // shading style changes the per-pixel base layer
     this.scheduleRender()
   }
   getCushionStyle(): CushionStyle { return this.cushionStyle }
@@ -411,6 +418,7 @@ export class CushionTreemap<T extends TreemapNode = TreemapNode> {
   }
 
   private relayout() {
+    this.baseDirty = true       // any geometry/data/theme change invalidates the base layer
     this.layout = []
     const node = this.currentNode()
     if (!node) return
@@ -579,33 +587,42 @@ export class CushionTreemap<T extends TreemapNode = TreemapNode> {
     const W = canvas.width, H = canvas.height
     if (W < 1 || H < 1) return
 
-    const imgData = ctx.createImageData(W, H)
-    const pixels = imgData.data as unknown as Uint8ClampedArray
-    const [br, bg, bb] = this.bgRgb
-    for (let i = 0; i < pixels.length; i += 4) {
-      pixels[i] = br; pixels[i + 1] = bg; pixels[i + 2] = bb; pixels[i + 3] = 255
-    }
-
-    const { Lx, Ly, Lz, ambient: Ia } = this
-    const bevel = this.cushionStyle === 'bevel'
-
-    const paint = (n: LayoutNode<T>, x0: number, y0: number, x1: number, y1: number) => {
-      if (bevel) drawBevel(pixels, W, x0, y0, x1, y1, n.rgb, Math.max(0, n.depth))
-      else drawCushion(pixels, W, x0, y0, x1, y1, n.surface, n.rgb, Lx, Ly, Lz, Ia)
-    }
-
-    const renderNodes = (nodes: LayoutNode<T>[]) => {
-      for (const n of nodes) {
-        if (n.x1 - n.x0 < geom.minPx || n.y1 - n.y0 < geom.minPx) continue
-        // Fill the whole tile (folder body = frame around inset children → fills gaps),
-        // then draw children on top so the parent color shows as header + border.
-        paint(n, n.x0, n.y0, n.x1, n.y1)
-        if (n.children.length > 0) renderNodes(n.children)
+    // Rebuild the per-pixel base layer only when geometry/colors/style changed.
+    // Hover-glow and fade-in frames reuse the cached ImageData (they only add
+    // cheap ctx overlays on top), so they no longer recompute the cushion field.
+    let img = this.baseImg
+    if (this.baseDirty || !img || img.width !== W || img.height !== H) {
+      img = ctx.createImageData(W, H)
+      const pixels = img.data as unknown as Uint8ClampedArray
+      const [br, bg, bb] = this.bgRgb
+      for (let i = 0; i < pixels.length; i += 4) {
+        pixels[i] = br; pixels[i + 1] = bg; pixels[i + 2] = bb; pixels[i + 3] = 255
       }
+
+      const { Lx, Ly, Lz, ambient: Ia } = this
+      const bevel = this.cushionStyle === 'bevel'
+
+      const paint = (n: LayoutNode<T>, x0: number, y0: number, x1: number, y1: number) => {
+        if (bevel) drawBevel(pixels, W, x0, y0, x1, y1, n.rgb, Math.max(0, n.depth))
+        else drawCushion(pixels, W, x0, y0, x1, y1, n.surface, n.rgb, Lx, Ly, Lz, Ia)
+      }
+
+      const renderNodes = (nodes: LayoutNode<T>[]) => {
+        for (const n of nodes) {
+          if (n.x1 - n.x0 < geom.minPx || n.y1 - n.y0 < geom.minPx) continue
+          // Fill the whole tile (folder body = frame around inset children → fills gaps),
+          // then draw children on top so the parent color shows as header + border.
+          paint(n, n.x0, n.y0, n.x1, n.y1)
+          if (n.children.length > 0) renderNodes(n.children)
+        }
+      }
+
+      renderNodes(this.layout)
+      this.baseImg = img
+      this.baseDirty = false
     }
 
-    renderNodes(this.layout)
-    ctx.putImageData(imgData, 0, 0)
+    ctx.putImageData(img, 0, 0)
 
     // Fade-in: dim toward background by the inverse of the eased appear progress.
     if (this.appear < 1) {

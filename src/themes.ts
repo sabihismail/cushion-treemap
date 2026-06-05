@@ -1,0 +1,165 @@
+/**
+ * Theme registry for cushion-treemap.
+ *
+ * A `Theme` is a plain data object: 8 file-category colors, four chrome colors,
+ * and cushion-shading parameters. Colors are authored as hex strings (easy to
+ * read/edit); the renderer converts them to RGB tuples once via {@link hexToRgb}
+ * because the per-pixel cushion shader works on numeric channels, not CSS strings.
+ *
+ * Palettes are sourced from well-known, permissively-shared color systems
+ * (Catppuccin, Nord, Tokyo Night, Rosé Pine, IBM Carbon, Tailwind).
+ */
+
+export type CategoryKey =
+  | 'video' | 'audio' | 'images' | 'code'
+  | 'docs' | 'archives' | 'executables' | 'other'
+
+/** All category keys in canonical legend order. */
+export const CATEGORY_KEYS: CategoryKey[] = [
+  'video', 'audio', 'images', 'code', 'docs', 'archives', 'executables', 'other',
+]
+
+export interface CushionParams {
+  /** Light direction X (unnormalized). Top-left convention: negative. */
+  lightX: number
+  /** Light direction Y (unnormalized). Top-left convention: negative. */
+  lightY: number
+  /** Light height / specular tightness. Higher = softer, flatter shading. */
+  lightZ: number
+  /** Initial ridge amplitude (puffiness). ~0.5 flat/modern, ~0.9 pronounced. */
+  height: number
+  /** Ridge height multiplier per depth level. */
+  scaleFactor: number
+  /** Ambient (floor) brightness 0–1. Raise on dark themes so deep tiles stay legible. */
+  ambient: number
+}
+
+export interface Theme {
+  name: string
+  mode: 'light' | 'dark'
+  /** One color per file category, in any order (keyed by CategoryKey). */
+  categories: Record<CategoryKey, string>
+  /** Canvas + page background. */
+  background: string
+  /** Directory header strip / chrome surface. */
+  header: string
+  /** Default text color for chrome. */
+  text: string
+  /** Hover border + subtle separators. */
+  border: string
+  cushion: CushionParams
+}
+
+const TL = { lightX: -1, lightY: -1 } // top-left light, shared by all themes
+
+export const THEMES: Theme[] = [
+  {
+    name: 'Catppuccin Mocha', mode: 'dark',
+    categories: {
+      video: '#89b4fa', audio: '#cba6f7', images: '#a6e3a1', code: '#f9e2af',
+      docs: '#b4befe', archives: '#fab387', executables: '#f38ba8', other: '#9399b2',
+    },
+    background: '#1e1e2e', header: '#313244', text: '#cdd6f4', border: '#45475a',
+    cushion: { ...TL, lightZ: 10, height: 0.62, scaleFactor: 0.78, ambient: 0.34 },
+  },
+  {
+    name: 'Clean Light', mode: 'light',
+    categories: {
+      video: '#2563eb', audio: '#9333ea', images: '#16a34a', code: '#ca8a04',
+      docs: '#4f46e5', archives: '#ea580c', executables: '#dc2626', other: '#64748b',
+    },
+    background: '#f8fafc', header: '#e2e8f0', text: '#0f172a', border: '#cbd5e1',
+    cushion: { ...TL, lightZ: 12, height: 0.55, scaleFactor: 0.78, ambient: 0.16 },
+  },
+  {
+    name: 'Nord', mode: 'dark',
+    categories: {
+      video: '#5e81ac', audio: '#b48ead', images: '#a3be8c', code: '#ebcb8b',
+      docs: '#81a1c1', archives: '#d08770', executables: '#bf616a', other: '#8fbcbb',
+    },
+    background: '#2e3440', header: '#3b4252', text: '#eceff4', border: '#4c566a',
+    cushion: { ...TL, lightZ: 11, height: 0.58, scaleFactor: 0.78, ambient: 0.30 },
+  },
+  {
+    name: 'Tokyo Night', mode: 'dark',
+    categories: {
+      video: '#7aa2f7', audio: '#bb9af7', images: '#9ece6a', code: '#e0af68',
+      docs: '#7dcfff', archives: '#ff9e64', executables: '#f7768e', other: '#565f89',
+    },
+    background: '#1a1b26', header: '#24283b', text: '#c0caf5', border: '#3b4261',
+    cushion: { ...TL, lightZ: 9, height: 0.66, scaleFactor: 0.76, ambient: 0.32 },
+  },
+  {
+    name: 'Rosé Pine Dawn', mode: 'light',
+    categories: {
+      video: '#56949f', audio: '#907aa9', images: '#9ccfd8', code: '#f6c177',
+      docs: '#c4a7e7', archives: '#ea9d34', executables: '#eb6f92', other: '#9893a5',
+    },
+    background: '#faf4ed', header: '#f2e9e1', text: '#575279', border: '#dfdad9',
+    cushion: { ...TL, lightZ: 12, height: 0.50, scaleFactor: 0.80, ambient: 0.18 },
+  },
+  {
+    name: 'IBM Carbon', mode: 'dark',
+    categories: {
+      video: '#4589ff', audio: '#a56eff', images: '#24a148', code: '#d2a106',
+      docs: '#8a3ffc', archives: '#ff832b', executables: '#fa4d56', other: '#8d8d8d',
+    },
+    background: '#161616', header: '#262626', text: '#f4f4f4', border: '#393939',
+    cushion: { ...TL, lightZ: 10, height: 0.60, scaleFactor: 0.78, ambient: 0.30 },
+  },
+]
+
+/** The boot default used when nothing else is specified. */
+export const DEFAULT_THEME = THEMES[0]
+
+/** Look up a theme by exact name; `undefined` if not found. */
+export function getTheme(name: string): Theme | undefined {
+  return THEMES.find(t => t.name === name)
+}
+
+/**
+ * Resolve a theme name from the OS color-scheme preference.
+ * Dark → "Catppuccin Mocha", light → "Clean Light". Falls back to dark when
+ * `matchMedia` is unavailable (e.g. server/Node).
+ */
+export function resolveSystemThemeName(): string {
+  if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+    return window.matchMedia('(prefers-color-scheme: light)').matches
+      ? 'Clean Light'
+      : 'Catppuccin Mocha'
+  }
+  return 'Catppuccin Mocha'
+}
+
+/** Parse "#rgb" or "#rrggbb" into an [r,g,b] tuple (0–255). */
+export function hexToRgb(hex: string): [number, number, number] {
+  let h = hex.trim().replace(/^#/, '')
+  if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2]
+  const n = parseInt(h, 16)
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+}
+
+/** Relative luminance (0–255) of an RGB tuple — Rec. 601 weights. */
+export function luminance(rgb: [number, number, number]): number {
+  return 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]
+}
+
+/**
+ * Project a theme onto CSS custom properties so DOM chrome (toolbars, legends,
+ * tooltips) can follow the active theme alongside the canvas. Sets:
+ *   --ct-bg --ct-header --ct-text --ct-text-dim --ct-border
+ *   --ct-cat-<category> for each of the 8 categories
+ * Framework-agnostic: only touches `element.style`.
+ */
+export function applyThemeVars(theme: Theme, element?: HTMLElement): void {
+  const el = element ?? (typeof document !== 'undefined' ? document.documentElement : null)
+  if (!el) return
+  const s = el.style
+  s.setProperty('--ct-bg', theme.background)
+  s.setProperty('--ct-header', theme.header)
+  s.setProperty('--ct-text', theme.text)
+  const [r, g, b] = hexToRgb(theme.text)
+  s.setProperty('--ct-text-dim', `rgba(${r},${g},${b},0.55)`)
+  s.setProperty('--ct-border', theme.border)
+  for (const k of CATEGORY_KEYS) s.setProperty(`--ct-cat-${k}`, theme.categories[k])
+}

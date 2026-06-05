@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>cushion-treemap demo</title>
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; margin: 0; }
+      body {
+        display: flex; flex-direction: column;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: var(--ct-bg, #1e1e2e);
+        color: var(--ct-text, #cdd6f4);
+        transition: background-color .2s, color .2s;
+      }
+      header {
+        display: flex; align-items: center; gap: 16px;
+        padding: 10px 16px;
+        border-bottom: 1px solid var(--ct-border, #45475a);
+        background: var(--ct-header, #313244);
+      }
+      header h1 { font-size: 15px; margin: 0; font-weight: 700; letter-spacing: -.01em; }
+      header .spacer { flex: 1; }
+      label { font-size: 13px; opacity: .8; }
+      select {
+        font: inherit; font-size: 13px;
+        padding: 4px 8px; border-radius: 6px;
+        background: var(--ct-bg, #1e1e2e);
+        color: var(--ct-text, #cdd6f4);
+        border: 1px solid var(--ct-border, #45475a);
+      }
+      .legend { display: flex; gap: 14px; flex-wrap: wrap; }
+      .legend span { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; opacity: .85; }
+      .legend i { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+      #wrap { flex: 1; min-height: 0; padding: 8px; }
+      canvas { display: block; width: 100%; height: 100%; border-radius: 10px; }
+      .hint { font-size: 12px; opacity: .6; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>cushion-treemap</h1>
+      <div class="legend" id="legend"></div>
+      <span class="spacer"></span>
+      <span class="hint">single-click a folder to zoom · click background to zoom out</span>
+      <label>Theme
+        <select id="theme"></select>
+      </label>
+    </header>
+    <div id="wrap"><canvas id="cv"></canvas></div>
+    <script type="module" src="./demo.ts"></script>
+  </body>
+</html>

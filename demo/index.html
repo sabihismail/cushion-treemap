@@ -3,9 +3,9 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>cushion-treemap demo</title>
+    <title>cushion-treemap · demo</title>
     <style>
-      :root { color-scheme: dark; }
+      :root { color-scheme: light dark; }
       * { box-sizing: border-box; }
       html, body { height: 100%; margin: 0; }
       body {
@@ -14,42 +14,106 @@
         background: var(--ct-bg, #1e1e2e);
         color: var(--ct-text, #cdd6f4);
         transition: background-color .2s, color .2s;
+        overflow: hidden;
       }
       header {
-        display: flex; align-items: center; gap: 16px;
-        padding: 10px 16px;
+        display: flex; align-items: center; gap: 14px;
+        padding: 9px 14px; flex-wrap: wrap;
         border-bottom: 1px solid var(--ct-border, #45475a);
         background: var(--ct-header, #313244);
       }
-      header h1 { font-size: 15px; margin: 0; font-weight: 700; letter-spacing: -.01em; }
-      header .spacer { flex: 1; }
-      label { font-size: 13px; opacity: .8; }
-      select {
+      header h1 { font-size: 15px; margin: 0; font-weight: 700; letter-spacing: -.01em; display: flex; align-items: center; gap: 7px; }
+      header h1 .dot { width: 11px; height: 11px; border-radius: 3px; background: linear-gradient(135deg,#cba6f7,#89b4fa); box-shadow: 0 0 0 1px rgba(255,255,255,.15) inset; }
+      .spacer { flex: 1; }
+      label { font-size: 13px; opacity: .85; display: inline-flex; align-items: center; gap: 6px; }
+      select, button {
         font: inherit; font-size: 13px;
-        padding: 4px 8px; border-radius: 6px;
+        padding: 5px 9px; border-radius: 7px; cursor: pointer;
         background: var(--ct-bg, #1e1e2e);
         color: var(--ct-text, #cdd6f4);
         border: 1px solid var(--ct-border, #45475a);
+        transition: filter .12s;
       }
-      .legend { display: flex; gap: 14px; flex-wrap: wrap; }
-      .legend span { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; opacity: .85; }
+      button:hover, select:hover { filter: brightness(1.12); }
+      button.primary { background: #7c3aed; color: #fff; border-color: #7c3aed; }
+      a.gh { color: var(--ct-text, #cdd6f4); opacity: .7; text-decoration: none; font-size: 12px; }
+      a.gh:hover { opacity: 1; }
+
+      .bar {
+        display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+        padding: 6px 14px; min-height: 34px;
+        border-bottom: 1px solid var(--ct-border, #45475a);
+        background: color-mix(in srgb, var(--ct-header, #313244) 55%, transparent);
+      }
+      .crumbs { display: flex; align-items: center; gap: 2px; flex-wrap: wrap; font-size: 13px; }
+      .crumbs button { background: none; border: none; padding: 2px 4px; color: #a78bfa; }
+      .crumbs button:last-child { color: var(--ct-text, #cdd6f4); cursor: default; }
+      .crumbs .sep { opacity: .4; }
+      .legend { display: flex; gap: 13px; flex-wrap: wrap; margin-left: auto; }
+      .legend span { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; opacity: .85; }
       .legend i { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
-      #wrap { flex: 1; min-height: 0; padding: 8px; }
+
+      #wrap { flex: 1; min-height: 0; padding: 8px; position: relative; }
       canvas { display: block; width: 100%; height: 100%; border-radius: 10px; }
-      .hint { font-size: 12px; opacity: .6; }
+
+      #tip {
+        position: absolute; pointer-events: none; z-index: 10;
+        padding: 7px 10px; border-radius: 8px; min-width: 150px; max-width: 260px;
+        background: var(--ct-header, #313244);
+        border: 1px solid var(--ct-border, #45475a);
+        box-shadow: 0 8px 24px rgba(0,0,0,.35);
+        font-size: 12px; display: none; backdrop-filter: blur(6px);
+      }
+      #tip .n { font-weight: 600; margin-bottom: 2px; word-break: break-all; }
+      #tip .m { opacity: .75; }
+
+      #drop {
+        position: absolute; inset: 8px; z-index: 20; display: none;
+        border: 2px dashed #a78bfa; border-radius: 12px;
+        align-items: center; justify-content: center; text-align: center;
+        background: color-mix(in srgb, var(--ct-bg, #1e1e2e) 70%, transparent);
+        font-size: 16px; font-weight: 600; color: #c4b5fd;
+      }
+      #wrap.dragging #drop { display: flex; }
+
+      .hint { font-size: 12px; opacity: .55; }
+      .status { font-size: 12px; opacity: .7; }
+      .err { color: #f38ba8; }
     </style>
   </head>
   <body>
     <header>
-      <h1>cushion-treemap</h1>
-      <div class="legend" id="legend"></div>
+      <h1><span class="dot"></span>cushion-treemap</h1>
+
+      <label>Dataset
+        <select id="dataset"></select>
+      </label>
+
+      <button id="import">Import JSON…</button>
+      <button id="sampleDl" title="Download the current dataset as JSON">Download sample</button>
+      <input id="file" type="file" accept=".json,application/json" hidden />
+
       <span class="spacer"></span>
-      <span class="hint">single-click a folder to zoom · click background to zoom out</span>
+      <span class="hint">click a folder to zoom · right-click / click background to zoom out · double-click a leaf</span>
+
       <label>Theme
         <select id="theme"></select>
       </label>
+      <a class="gh" href="https://github.com/sabihismail/cushion-treemap" target="_blank" rel="noopener">GitHub ↗</a>
     </header>
-    <div id="wrap"><canvas id="cv"></canvas></div>
+
+    <div class="bar">
+      <nav class="crumbs" id="crumbs"></nav>
+      <span class="status" id="status"></span>
+      <div class="legend" id="legend"></div>
+    </div>
+
+    <div id="wrap">
+      <canvas id="cv"></canvas>
+      <div id="tip"></div>
+      <div id="drop">Drop a .json file to visualize it</div>
+    </div>
+
     <script type="module" src="./demo.ts"></script>
   </body>
 </html>

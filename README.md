@@ -10,6 +10,13 @@ and per-pixel lighting via `ImageData` — no SVG, no chart library, no React.
 
 ![cushion treemap](https://github.com/sabihismail/cushion-treemap/raw/main/.github/preview.png)
 
+## Demo
+
+- **Live:** **[sabihismail.github.io/cushion-treemap](https://sabihismail.github.io/cushion-treemap)** — runs in the browser, no install.
+- **Offline:** grab [`cushion-treemap-demo.html`](https://github.com/sabihismail/cushion-treemap/raw/main/cushion-treemap-demo.html) — a single self-contained file (engine inlined, ~25 KB). Download and double-click; it works from `file://` with no server.
+
+Both demos share one source (`demo/`) and include a **theme switcher** (all 6 themes + Auto/system), three sample datasets (synthetic disk, `node_modules` bloat, a non-file solar-system tree), drill-in zoom with breadcrumbs, and **drag-and-drop / "Import JSON"** so you can drop in your own tree. Native shape is `{ name, value, children }`, and the importer also adapts common disk-scan dumps (`size_bytes`/`size`/`bytes`, `node_type`/`is_dir`). Use **Download sample** to see the exact JSON shape.
+
 ## Features
 
 - **One file, zero deps.** Pure TypeScript + the 2D canvas context.
@@ -125,6 +132,8 @@ interface TreemapNode {
 ```bash
 npm install
 npm run dev        # runnable demo with synthetic data + theme switcher
+npm run demo       # same demo (alias of dev)
+npm run demo:build # build both demo outputs: dist-demo/ (Pages) + cushion-treemap-demo.html (offline)
 npm test           # unit tests (node:test via tsx)
 npm run build      # bundle to dist/ (ESM + CJS + .d.ts) via tsup
 npm run typecheck

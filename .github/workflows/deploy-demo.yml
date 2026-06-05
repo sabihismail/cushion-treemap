@@ -14,12 +14,19 @@ concurrency:
   group: pages
   cancel-in-progress: true
 
+# Run all JavaScript actions on Node 24. The GitHub Pages actions
+# (configure-pages/upload-pages-artifact/deploy-pages) have no Node-24 major yet;
+# this opt-in forces their runtime now, matching the post-2026-06-16 default and
+# silencing the Node-20 deprecation warnings. checkout/setup-node use native v5.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 20
           cache: npm

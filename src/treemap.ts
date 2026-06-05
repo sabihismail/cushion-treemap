@@ -32,6 +32,20 @@ export interface TreemapNode {
   path?: string
 }
 
+/**
+ * How tiles are colored.
+ * - `category`  — files by extension category, dirs by a depth-cycled palette (default).
+ * - `folder-file` — SpaceSniffer two-tone: one color for all folders, one for all files.
+ */
+export type ColorMode = 'category' | 'folder-file'
+
+/**
+ * Surface shading style.
+ * - `ridge` — smooth per-pixel van Wijk cushion (default).
+ * - `bevel` — crisp SpaceSniffer-style flat fill with lit/shadowed edges.
+ */
+export type CushionStyle = 'ridge' | 'bevel'
+
 export interface TreemapOptions<T extends TreemapNode = TreemapNode> {
   /** Active theme. Defaults to Catppuccin Mocha. */
   theme?: Theme
@@ -46,6 +60,14 @@ export interface TreemapOptions<T extends TreemapNode = TreemapNode> {
   isDir?: (node: T) => boolean
   /** Map a node to a color category. Default: by filename extension. `null` → "other". */
   categoryForNode?: (node: T) => CategoryKey | null
+  /** Tile coloring scheme (default `category`). */
+  colorMode?: ColorMode
+  /** Surface shading style (default `ridge`). */
+  cushionStyle?: CushionStyle
+  /** In `folder-file` mode, paint a small per-category corner tag on file tiles (default false). */
+  accentTags?: boolean
+  /** Animate fade-in on data change and the hover glow (default true). */
+  animate?: boolean
 }
 
 interface GeomOptions {
@@ -71,6 +93,7 @@ interface LayoutNode<T extends TreemapNode> {
   surface: Float64Array // [ax, ay, bx, by] accumulated from root
   rgb: [number, number, number]
   isDir: boolean
+  cat: CategoryKey | null // file category (for accent tags); null for dirs
   children: LayoutNode<T>[]
 }
 
@@ -120,21 +143,40 @@ function drawCushion(
   }
 }
 
-function drawBorder(
+/**
+ * SpaceSniffer-style bevel: a flat color fill with a lit top/left edge and a
+ * shadowed bottom/right edge. Crisp and cheap — no per-pixel normal math.
+ * `depth` darkens nested tiles slightly so hierarchy still reads in two-tone mode.
+ */
+function drawBevel(
   pixels: Uint8ClampedArray, stride: number,
   x0: number, y0: number, x1: number, y1: number,
-  bw: number, brightness: number,
+  rgb: [number, number, number], depth: number,
 ) {
-  const px0 = Math.round(x0), py0 = Math.round(y0)
-  const px1 = Math.round(x1), py1 = Math.round(y1)
+  const px0 = Math.max(0, Math.round(x0))
+  const py0 = Math.max(0, Math.round(y0))
+  const px1 = Math.round(x1)
+  const py1 = Math.round(y1)
+  const dim = Math.max(0.62, 1 - depth * 0.05)
+  const r = rgb[0] * dim, g = rgb[1] * dim, b = rgb[2] * dim
+  const bw = (px1 - px0) > 6 && (py1 - py0) > 6 ? 2 : 1
   for (let iy = py0; iy < py1; iy++) {
-    const onEdge = iy < py0 + bw || iy >= py1 - bw
+    const base = iy * stride
+    const dt = iy - py0, db = py1 - 1 - iy
     for (let ix = px0; ix < px1; ix++) {
-      if (!onEdge && ix >= px0 + bw && ix < px1 - bw) continue
-      const idx = (iy * stride + ix) << 2
-      pixels[idx]     = Math.min(255, pixels[idx]     + brightness)
-      pixels[idx + 1] = Math.min(255, pixels[idx + 1] + brightness)
-      pixels[idx + 2] = Math.min(255, pixels[idx + 2] + brightness)
+      const dl = ix - px0, dr = px1 - 1 - ix
+      let f = 1
+      if (Math.min(dl, dt, dr, db) < bw) {
+        if (dt <= dl && dt <= dr && dt <= db) f = 1.30      // top edge — lit
+        else if (dl <= dr && dl <= db) f = 1.16             // left edge — lit
+        else if (db <= dr) f = 0.66                         // bottom edge — shadow
+        else f = 0.80                                       // right edge — shadow
+      }
+      const idx = (base + ix) << 2
+      pixels[idx]     = Math.min(255, r * f)
+      pixels[idx + 1] = Math.min(255, g * f)
+      pixels[idx + 2] = Math.min(255, b * f)
+      pixels[idx + 3] = 255
     }
   }
 }
@@ -172,10 +214,25 @@ export class CushionTreemap<T extends TreemapNode = TreemapNode> {
   private catTuples!: [number, number, number][]
   private bgRgb!: [number, number, number]
   private rootRgb!: [number, number, number]
+  private folderRgb!: [number, number, number]
+  private fileRgb!: [number, number, number]
+  private glowRgb!: [number, number, number]
   private height = 0.62
   private scaleFactor = 0.78
   private ambient = 0.34
   private Lx = 0; private Ly = 0; private Lz = 1
+
+  // render-style state
+  private colorMode: ColorMode
+  private cushionStyle: CushionStyle
+  private accentTags: boolean
+  private animate: boolean
+
+  // animation state
+  private appear = 1            // 0→1 fade-in progress on data change
+  private appearStart = 0
+  private hoverGlow = 0         // 0→1 eased hover highlight intensity
+  private animRaf: number | null = null
 
   private root: T | null = null
   private zoomStack: T[] = []
@@ -202,6 +259,10 @@ export class CushionTreemap<T extends TreemapNode = TreemapNode> {
     }
     this.isDir = options.isDir ?? ((n) => !!(n.children && n.children.length > 0))
     this.categoryOf = options.categoryForNode ?? ((n) => categoryForName(n.name))
+    this.colorMode = options.colorMode ?? 'category'
+    this.cushionStyle = options.cushionStyle ?? 'ridge'
+    this.accentTags = options.accentTags ?? false
+    this.animate = options.animate ?? true
 
     this.applyTheme(options.theme ?? DEFAULT_THEME)
 
@@ -217,6 +278,7 @@ export class CushionTreemap<T extends TreemapNode = TreemapNode> {
     this.canvas.removeEventListener('click', this.onCanvasClick)
     this.canvas.removeEventListener('dblclick', this.onCanvasDblClick)
     if (this.pendingRaf !== null) cancelAnimationFrame(this.pendingRaf)
+    if (this.animRaf !== null) cancelAnimationFrame(this.animRaf)
   }
 
   /** Swap the active theme. Geometry is unchanged; recolors and repaints. */
@@ -227,6 +289,37 @@ export class CushionTreemap<T extends TreemapNode = TreemapNode> {
   }
 
   getTheme(): Theme { return this.theme }
+
+  /** Switch the tile coloring scheme (`category` ↔ `folder-file`). Recolors + repaints. */
+  setColorMode(mode: ColorMode) {
+    if (mode === this.colorMode) return
+    this.colorMode = mode
+    this.relayout()
+    this.scheduleRender()
+  }
+  getColorMode(): ColorMode { return this.colorMode }
+
+  /** Switch the surface shading style (`ridge` ↔ `bevel`). Repaints; no relayout. */
+  setCushionStyle(style: CushionStyle) {
+    if (style === this.cushionStyle) return
+    this.cushionStyle = style
+    this.scheduleRender()
+  }
+  getCushionStyle(): CushionStyle { return this.cushionStyle }
+
+  /** Toggle per-category corner tags on file tiles (only visible in `folder-file` mode). */
+  setAccentTags(on: boolean) {
+    if (on === this.accentTags) return
+    this.accentTags = on
+    this.scheduleRender()
+  }
+  getAccentTags(): boolean { return this.accentTags }
+
+  /** Enable/disable fade-in + hover-glow animation. */
+  setAnimate(on: boolean) {
+    this.animate = on
+    if (!on) { this.appear = 1; this.hoverGlow = this.hovered ? 1 : 0 }
+  }
 
   private applyTheme(theme: Theme) {
     this.theme = theme
@@ -240,6 +333,10 @@ export class CushionTreemap<T extends TreemapNode = TreemapNode> {
     this.bgRgb = hexToRgb(theme.background)
     const hdr = hexToRgb(theme.header)
     this.rootRgb = [hdr[0] * 0.72, hdr[1] * 0.72, hdr[2] * 0.72]
+    this.folderRgb = hexToRgb(theme.folder)
+    this.fileRgb = hexToRgb(theme.file)
+    // Hover glow: the theme's most "active" accent (video/blue), kept bright.
+    this.glowRgb = hexToRgb(theme.categories.video)
 
     const cu = theme.cushion
     this.height = cu.height
@@ -252,7 +349,14 @@ export class CushionTreemap<T extends TreemapNode = TreemapNode> {
   setData(root: T) {
     this.root = root
     this.relayout()
-    this.scheduleRender()
+    if (this.animate) {
+      this.appear = 0
+      this.appearStart = (typeof performance !== 'undefined' ? performance.now() : Date.now())
+      this.startAnim()
+    } else {
+      this.appear = 1
+      this.scheduleRender()
+    }
   }
 
   drillIn(node: T) {
@@ -280,6 +384,12 @@ export class CushionTreemap<T extends TreemapNode = TreemapNode> {
   // ─── Color ──────────────────────────────────────────────────────────────────
 
   private dirColor(depth: number, idx: number): [number, number, number] {
+    if (this.colorMode === 'folder-file') {
+      // One folder tone for all dirs; nest readability comes from depth dim + bevel.
+      const f = Math.max(0.62, 1 - depth * 0.06)
+      const [r, g, b] = this.folderRgb
+      return [r * f, g * f, b * f]
+    }
     const cats = this.catTuples
     const i = ((depth * 3 + idx) % cats.length + cats.length) % cats.length
     const base = cats[i]
@@ -288,6 +398,7 @@ export class CushionTreemap<T extends TreemapNode = TreemapNode> {
   }
 
   private fileColor(node: T): [number, number, number] {
+    if (this.colorMode === 'folder-file') return this.fileRgb
     const cat = this.categoryOf(node) ?? 'other'
     return this.catColor[cat]
   }
@@ -320,7 +431,7 @@ export class CushionTreemap<T extends TreemapNode = TreemapNode> {
     const rootNode: LayoutNode<T> = {
       x0: 0, y0: 0, x1: W, y1: H,
       node, depth: -1, surface: rootSurface,
-      rgb: this.rootRgb, isDir: true, children: [],
+      rgb: this.rootRgb, isDir: true, cat: null, children: [],
     }
     this.layout = [rootNode]
 
@@ -384,10 +495,11 @@ export class CushionTreemap<T extends TreemapNode = TreemapNode> {
         const myIdx = sibIdx.i++
         const dir = this.isDir(rn)
         const col = dir ? this.dirColor(depth, myIdx) : this.fileColor(rn)
+        const cat = dir ? null : (this.categoryOf(rn) ?? 'other')
 
         const ln: LayoutNode<T> = {
           x0: lx0, y0: ly0, x1: lx1, y1: ly1,
-          node: rn, depth, surface: surf, rgb: col, isDir: dir, children: [],
+          node: rn, depth, surface: surf, rgb: col, isDir: dir, cat, children: [],
         }
         out.push(ln)
 
@@ -433,11 +545,33 @@ export class CushionTreemap<T extends TreemapNode = TreemapNode> {
   // ─── Render ───────────────────────────────────────────────────────────────
 
   private scheduleRender() {
+    if (this.animRaf !== null) return // animation loop already painting
     if (this.pendingRaf !== null) return
     this.pendingRaf = requestAnimationFrame(() => {
       this.pendingRaf = null
       this.render()
     })
+  }
+
+  /** Drive fade-in + hover-glow easing until both settle, then stop. */
+  private startAnim() {
+    if (!this.animate || this.animRaf !== null) return
+    const step = () => {
+      this.animRaf = null
+      const now = (typeof performance !== 'undefined' ? performance.now() : Date.now())
+      if (this.appear < 1) {
+        const t = (now - this.appearStart) / 280
+        this.appear = t >= 1 ? 1 : t
+      }
+      const target = this.hovered ? 1 : 0
+      this.hoverGlow += (target - this.hoverGlow) * 0.22
+      if (Math.abs(target - this.hoverGlow) < 0.02) this.hoverGlow = target
+      this.render()
+      if (this.appear < 1 || this.hoverGlow !== target) {
+        this.animRaf = requestAnimationFrame(step)
+      }
+    }
+    this.animRaf = requestAnimationFrame(step)
   }
 
   private render() {
@@ -453,27 +587,78 @@ export class CushionTreemap<T extends TreemapNode = TreemapNode> {
     }
 
     const { Lx, Ly, Lz, ambient: Ia } = this
-    const hov = this.hovered
+    const bevel = this.cushionStyle === 'bevel'
+
+    const paint = (n: LayoutNode<T>, x0: number, y0: number, x1: number, y1: number) => {
+      if (bevel) drawBevel(pixels, W, x0, y0, x1, y1, n.rgb, Math.max(0, n.depth))
+      else drawCushion(pixels, W, x0, y0, x1, y1, n.surface, n.rgb, Lx, Ly, Lz, Ia)
+    }
 
     const renderNodes = (nodes: LayoutNode<T>[]) => {
       for (const n of nodes) {
         if (n.x1 - n.x0 < geom.minPx || n.y1 - n.y0 < geom.minPx) continue
-
-        if (n.children.length > 0) {
-          const headerY1 = Math.min(n.y0 + geom.headerHeight, n.y1)
-          drawCushion(pixels, W, n.x0, n.y0, n.x1, headerY1, n.surface, n.rgb, Lx, Ly, Lz, Ia)
-          renderNodes(n.children)
-        } else {
-          drawCushion(pixels, W, n.x0, n.y0, n.x1, n.y1, n.surface, n.rgb, Lx, Ly, Lz, Ia)
-        }
-
-        if (hov === n) drawBorder(pixels, W, n.x0, n.y0, n.x1, n.y1, 2, 85)
+        // Fill the whole tile (folder body = frame around inset children → fills gaps),
+        // then draw children on top so the parent color shows as header + border.
+        paint(n, n.x0, n.y0, n.x1, n.y1)
+        if (n.children.length > 0) renderNodes(n.children)
       }
     }
 
     renderNodes(this.layout)
     ctx.putImageData(imgData, 0, 0)
+
+    // Fade-in: dim toward background by the inverse of the eased appear progress.
+    if (this.appear < 1) {
+      const eased = 1 - Math.pow(1 - this.appear, 3) // easeOutCubic
+      ctx.save()
+      ctx.globalAlpha = 1 - eased
+      ctx.fillStyle = `rgb(${this.bgRgb[0]},${this.bgRgb[1]},${this.bgRgb[2]})`
+      ctx.fillRect(0, 0, W, H)
+      ctx.restore()
+    }
+
+    if (this.colorMode === 'folder-file' && this.accentTags) this.drawAccents(this.layout)
+    this.drawHoverGlow()
     this.drawLabels(this.layout)
+  }
+
+  /** Bright eased outline + soft glow on the hovered tile (canvas shadow). */
+  private drawHoverGlow() {
+    const n = this.hovered
+    if (!n || this.hoverGlow <= 0.01) return
+    const [r, g, b] = this.glowRgb
+    const a = this.hoverGlow
+    const ctx = this.ctx
+    ctx.save()
+    ctx.shadowColor = `rgba(${r},${g},${b},${0.9 * a})`
+    ctx.shadowBlur = 14 * a
+    ctx.strokeStyle = `rgba(${r},${g},${b},${a})`
+    ctx.lineWidth = 2
+    ctx.strokeRect(n.x0 + 1, n.y0 + 1, n.x1 - n.x0 - 2, n.y1 - n.y0 - 2)
+    ctx.restore()
+  }
+
+  /** SpaceSniffer-style per-category corner tag on file tiles (folder-file mode). */
+  private drawAccents(nodes: LayoutNode<T>[]) {
+    const ctx = this.ctx
+    const draw = (nodes: LayoutNode<T>[]) => {
+      for (const n of nodes) {
+        if (n.children.length > 0) { draw(n.children); continue }
+        if (n.isDir || !n.cat) continue
+        const w = n.x1 - n.x0, h = n.y1 - n.y0
+        if (w < 14 || h < 12) continue
+        const s = Math.min(11, w * 0.34, h * 0.55)
+        const [r, g, b] = this.catColor[n.cat]
+        ctx.fillStyle = `rgb(${r},${g},${b})`
+        ctx.beginPath()
+        ctx.moveTo(n.x1 - s, n.y0)
+        ctx.lineTo(n.x1, n.y0)
+        ctx.lineTo(n.x1, n.y0 + s)
+        ctx.closePath()
+        ctx.fill()
+      }
+    }
+    draw(nodes)
   }
 
   private labelColor(rgb: [number, number, number]): string {
@@ -538,13 +723,18 @@ export class CushionTreemap<T extends TreemapNode = TreemapNode> {
     const hit = rawHit?.depth === -1 ? null : rawHit
     if (hit !== this.hovered) {
       this.hovered = hit
-      this.scheduleRender()
+      if (this.animate) this.startAnim()
+      else this.scheduleRender()
     }
     this.onHover?.(hit?.node ?? null, x, y)
   }
 
   private onMouseLeave = () => {
-    if (this.hovered) { this.hovered = null; this.scheduleRender() }
+    if (this.hovered) {
+      this.hovered = null
+      if (this.animate) this.startAnim()
+      else this.scheduleRender()
+    }
     this.onHover?.(null, 0, 0)
   }
 

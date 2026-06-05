@@ -60,7 +60,7 @@ test('every theme has all 8 categories as valid hex', () => {
       assert.ok(v, `${t.name} missing category ${k}`)
       assert.match(v, hex6, `${t.name}.${k}="${v}" not 6-digit hex`)
     }
-    for (const field of ['background', 'header', 'text', 'border'] as const) {
+    for (const field of ['background', 'header', 'text', 'border', 'folder', 'file'] as const) {
       assert.match(t[field], hex6, `${t.name}.${field}="${t[field]}" not 6-digit hex`)
     }
   }
@@ -81,6 +81,19 @@ test('every theme has numeric cushion params and a valid mode', () => {
 test('theme names are unique', () => {
   const names = THEMES.map(t => t.name)
   assert.equal(new Set(names).size, names.length, 'duplicate theme name')
+})
+
+test('Manila (SpaceSniffer) theme is registered with two-tone colors', () => {
+  const m = getTheme('Manila')
+  assert.ok(m, 'Manila theme exists')
+  // two-tone fills must differ so folders and files are visually distinct
+  assert.notEqual(m!.folder, m!.file, 'folder and file colors differ')
+})
+
+test('every theme has distinct folder vs file fills', () => {
+  for (const t of THEMES) {
+    assert.notEqual(t.folder, t.file, `${t.name}: folder and file colors must differ`)
+  }
 })
 
 // ─── getTheme / resolveSystemThemeName ────────────────────────────────────────

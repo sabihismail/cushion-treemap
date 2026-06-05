@@ -231,6 +231,14 @@ themeSel.innerHTML = '<option value="auto">Auto (system)</option>' +
 
 const legendEl = document.getElementById('legend') as HTMLDivElement
 function renderLegend() {
+  if (tm.getColorMode() === 'folder-file') {
+    const swatch = (v: string, label: string) => `<span><i style="background:var(${v})"></i>${label}</span>`
+    let html = swatch('--ct-folder', 'folder') + swatch('--ct-file', 'file')
+    if (tm.getAccentTags()) html += `<span class="hint" style="opacity:.55">tags:</span>` +
+      CATEGORY_KEYS.map(k => `<span><i style="background:var(--ct-cat-${k})"></i>${k}</span>`).join('')
+    legendEl.innerHTML = html
+    return
+  }
   legendEl.innerHTML = CATEGORY_KEYS.map(k =>
     `<span><i style="background:var(--ct-cat-${k})"></i>${k}</span>`).join('')
 }
@@ -243,6 +251,17 @@ function setTheme(name: string) {
 themeSel.addEventListener('change', () => setTheme(themeSel.value))
 window.matchMedia('(prefers-color-scheme: dark)')
   .addEventListener('change', () => { if (themeSel.value === 'auto') setTheme('auto') })
+
+// ─── Render-style controls (color mode · cushion style · accent tags) ─────────
+const colorModeSel = document.getElementById('colorMode') as HTMLSelectElement
+const cushionSel = document.getElementById('cushionStyle') as HTMLSelectElement
+const accentChk = document.getElementById('accent') as HTMLInputElement
+colorModeSel.addEventListener('change', () => {
+  tm.setColorMode(colorModeSel.value as 'category' | 'folder-file')
+  renderLegend()
+})
+cushionSel.addEventListener('change', () => tm.setCushionStyle(cushionSel.value as 'ridge' | 'bevel'))
+accentChk.addEventListener('change', () => { tm.setAccentTags(accentChk.checked); renderLegend() })
 
 // ─── Dataset picker ───────────────────────────────────────────────────────────
 const dsSel = document.getElementById('dataset') as HTMLSelectElement

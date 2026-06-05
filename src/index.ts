@@ -6,7 +6,7 @@
  */
 
 export { CushionTreemap, fmtBytes } from './treemap'
-export type { TreemapNode, TreemapOptions } from './treemap'
+export type { TreemapNode, TreemapOptions, ColorMode, CushionStyle } from './treemap'
 
 export {
   THEMES, DEFAULT_THEME, CATEGORY_KEYS,

@@ -22,8 +22,13 @@ Both demos share one source (`demo/`) and include a **theme switcher** (all 6 th
 - **One file, zero deps.** Pure TypeScript + the 2D canvas context.
 - **Bring any framework — or none.** Hand it a `<canvas>` and a tree.
 - **Squarified layout** with stable, near-square tiles and depth-decaying ridges.
-- **6 built-in themes** (Catppuccin Mocha, Clean Light, Nord, Tokyo Night,
-  Rosé Pine Dawn, IBM Carbon) + a `Theme` type to author your own.
+- **Two color modes** — color files by extension *category*, or a SpaceSniffer-style
+  *folder/file* two-tone (one color for folders, one for files).
+- **Two cushion styles** — smooth per-pixel *ridge*, or a crisp SpaceSniffer-style *bevel*.
+- **Hover glow, fade-in animation, and per-type accent tags** for a cute, crisp finish.
+- **7 built-in themes** (Catppuccin Mocha, Clean Light, Nord, Tokyo Night,
+  Rosé Pine Dawn, IBM Carbon, and **Manila** — a SpaceSniffer homage) + a `Theme`
+  type to author your own.
 - **System-aware theming** (`prefers-color-scheme`) and CSS-variable projection
   for surrounding DOM chrome.
 - **Luminance-aware labels** that stay readable on light *and* dark tiles.
@@ -109,7 +114,17 @@ new CushionTreemap(canvas, {
   fontFamily: '…',             // label font
   isDir: (n) => n.kind === 'dir',          // custom directory predicate
   categoryForNode: (n) => 'code',          // custom color category
+  colorMode: 'category',                   // 'category' | 'folder-file'
+  cushionStyle: 'ridge',                   // 'ridge' | 'bevel'
+  accentTags: false,                       // folder-file: per-type corner tags
+  animate: true,                           // fade-in + hover glow
 })
+
+// All four are also live setters (no rebuild of the tree):
+tm.setColorMode('folder-file')   // SpaceSniffer two-tone
+tm.setCushionStyle('bevel')      // crisp beveled tiles
+tm.setAccentTags(true)           // per-type corner tags on files
+tm.setTheme(getTheme('Manila')!) // SpaceSniffer-style palette
 ```
 
 `CushionTreemap<T>` is generic over your node type — `T` must extend

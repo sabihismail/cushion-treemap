@@ -88,6 +88,24 @@ applyThemeVars(getTheme('Nord')!)
 Author a custom theme by passing any object that satisfies the exported `Theme`
 interface to `new CushionTreemap(canvas, { theme })` or `tm.setTheme(theme)`.
 
+### Built-in themes
+
+All seven, shown in **category** color mode (files tinted by extension) on the same
+synthetic-disk dataset. Switch at runtime with `tm.setTheme(getTheme(name)!)`.
+
+| Catppuccin Mocha · *dark* | Tokyo Night · *dark* |
+|:---:|:---:|
+| ![Catppuccin Mocha](docs/themes/catppuccin-mocha.png) | ![Tokyo Night](docs/themes/tokyo-night.png) |
+| **Nord · *dark*** | **IBM Carbon · *dark*** |
+| ![Nord](docs/themes/nord.png) | ![IBM Carbon](docs/themes/ibm-carbon.png) |
+| **Clean Light · *light*** | **Rosé Pine Dawn · *light*** |
+| ![Clean Light](docs/themes/clean-light.png) | ![Rosé Pine Dawn](docs/themes/rose-pine-dawn.png) |
+| **Manila · *light* — SpaceSniffer homage** | |
+| ![Manila](docs/themes/manila.png) | |
+
+> The folder/file two-tone look (`colorMode: 'folder-file'`) renders the same themes
+> with one color for folders and one for files — see the hero image above.
+
 ## Interaction
 
 ```ts

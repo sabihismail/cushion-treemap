@@ -253,6 +253,12 @@ export class CushionTreemap<T extends TreemapNode = TreemapNode> {
   onOpenFile?: (path: string, node: T) => void
   /** Fired when the engine's own drill zoom changes (drillIn/drillOut). */
   onZoomChange?: (path: string[]) => void
+  /**
+   * Right-click on a tile. `node` is the tile under the cursor (null on empty
+   * space). When set, the engine suppresses the browser's native context menu so
+   * the consumer can render its own. x/y match onHover (canvas-relative).
+   */
+  onContextMenu?: (node: T | null, x: number, y: number) => void
 
   constructor(canvas: HTMLCanvasElement, options: TreemapOptions<T> = {}) {
     this.canvas = canvas
@@ -276,6 +282,7 @@ export class CushionTreemap<T extends TreemapNode = TreemapNode> {
     canvas.addEventListener('mouseleave', this.onMouseLeave)
     canvas.addEventListener('click', this.onCanvasClick)
     canvas.addEventListener('dblclick', this.onCanvasDblClick)
+    canvas.addEventListener('contextmenu', this.onCanvasContextMenu)
   }
 
   destroy() {
@@ -283,6 +290,7 @@ export class CushionTreemap<T extends TreemapNode = TreemapNode> {
     this.canvas.removeEventListener('mouseleave', this.onMouseLeave)
     this.canvas.removeEventListener('click', this.onCanvasClick)
     this.canvas.removeEventListener('dblclick', this.onCanvasDblClick)
+    this.canvas.removeEventListener('contextmenu', this.onCanvasContextMenu)
     if (this.pendingRaf !== null) cancelAnimationFrame(this.pendingRaf)
     if (this.animRaf !== null) cancelAnimationFrame(this.animRaf)
   }
@@ -353,14 +361,24 @@ export class CushionTreemap<T extends TreemapNode = TreemapNode> {
     this.Lx = cu.lightX / len; this.Ly = cu.lightY / len; this.Lz = cu.lightZ / len
   }
 
-  setData(root: T) {
+  /**
+   * Replace the dataset and repaint.
+   *
+   * By default this plays the fade-in (appropriate for first load / drive switch).
+   * Pass `{ animate: false }` for incremental updates of the *same* dataset (e.g.
+   * a live scan merging batches many times per second) so the canvas doesn't
+   * re-fade on every update — which otherwise reads as constant flashing.
+   */
+  setData(root: T, opts?: { animate?: boolean }) {
     this.root = root
     this.relayout()
-    if (this.animate) {
+    const fade = (opts?.animate ?? true) && this.animate
+    if (fade) {
       this.appear = 0
       this.appearStart = (typeof performance !== 'undefined' ? performance.now() : Date.now())
       this.startAnim()
     } else {
+      // Finish any in-flight fade and just repaint with the new layout.
       this.appear = 1
       this.scheduleRender()
     }
@@ -769,6 +787,15 @@ export class CushionTreemap<T extends TreemapNode = TreemapNode> {
     if (!hit || hit.depth === -1) return
     if (hit.isDir) return
     if (hit.node.path) this.onOpenFile?.(hit.node.path, hit.node)
+  }
+
+  private onCanvasContextMenu = (e: MouseEvent) => {
+    if (!this.onContextMenu) return            // no handler → leave native menu intact
+    const [x, y] = this.getXY(e)
+    const hit = this.hitTest(this.layout, x, y)
+    const node = (!hit || hit.depth === -1) ? null : hit.node
+    e.preventDefault()                          // suppress browser menu; show ours
+    this.onContextMenu(node, x, y)
   }
 }
 

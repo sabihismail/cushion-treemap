@@ -5,7 +5,8 @@ import {
   THEMES, DEFAULT_THEME, CATEGORY_KEYS,
   getTheme, resolveSystemThemeName,
   hexToRgb, luminance, categoryForName, fmtBytes,
-  type CategoryKey,
+  CushionTreemap,
+  type CategoryKey, type TreemapNode,
 } from '../src/index'
 
 // ─── hexToRgb ─────────────────────────────────────────────────────────────────
@@ -122,4 +123,143 @@ test('fmtBytes scales units', () => {
   assert.equal(fmtBytes(5 * 1e6), '5.0 MB')
   assert.equal(fmtBytes(3.2 * 1e9), '3.2 GB')
   assert.equal(fmtBytes(1.5 * 1e12), '1.5 TB')
+})
+
+// ─── setData({ animate }) — flashing-fix regression ─────────────────────────────
+//
+// The bug: a live scan calls setData() many times/sec merging batches into the
+// SAME dataset. setData unconditionally reset appear=0 (fade-from-background),
+// so every incremental update re-triggered the fade → constant flashing.
+// Fix: setData(root, { animate: false }) skips the fade (appear=1, plain repaint);
+// animate defaults true for genuine new datasets (initial open / drive switch).
+//
+// Observable proxy for "is the fade running": render() draws a full-canvas dim
+// overlay via ctx.fillRect(0,0,W,H) ONLY while appear < 1. fillRect is used
+// nowhere else, so its call count == fade frames painted.
+
+// A forgiving 2D-context stub: real impls for the data-returning calls, a
+// recording no-op for everything else (fillRect, strokeRect, save, …).
+function makeMockCtx() {
+  const calls: Record<string, number> = {}
+  const target: Record<string, unknown> = {
+    createImageData: (w: number, h: number) =>
+      ({ width: w, height: h, data: new Uint8ClampedArray(Math.max(1, w * h) * 4) }),
+    getImageData: (_x: number, _y: number, w: number, h: number) =>
+      ({ width: w, height: h, data: new Uint8ClampedArray(Math.max(1, w * h) * 4) }),
+    measureText: () => ({ width: 8 }),
+  }
+  const ctx = new Proxy(target, {
+    get(t, prop: string) {
+      if (prop in t) return (t as Record<string, unknown>)[prop]
+      return (..._args: unknown[]) => { calls[prop] = (calls[prop] ?? 0) + 1 }
+    },
+    set(t, prop: string, val) { (t as Record<string, unknown>)[prop] = val; return true },
+  })
+  return { ctx, calls }
+}
+
+function makeMockCanvas(ctx: unknown) {
+  return {
+    width: 240, height: 160,
+    getContext: () => ctx,
+    addEventListener() {}, removeEventListener() {},
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 240, height: 160 }),
+  } as unknown as HTMLCanvasElement
+}
+
+const SAMPLE_ROOT: TreemapNode = {
+  name: 'root', value: 100,
+  children: [{ name: 'a', value: 60 }, { name: 'b', value: 40 }],
+}
+
+// Run requestAnimationFrame callbacks synchronously, capped so the fade loop
+// (which schedules itself until appear hits 1) can't spin forever in the test.
+function withSyncRaf(budget: number, fn: () => void) {
+  const g = globalThis as Record<string, unknown>
+  const prevRaf = g.requestAnimationFrame
+  const prevCancel = g.cancelAnimationFrame
+  let left = budget
+  g.requestAnimationFrame = (cb: (t: number) => void) => {
+    if (left-- > 0) cb(typeof performance !== 'undefined' ? performance.now() : 0)
+    return 1
+  }
+  g.cancelAnimationFrame = () => {}
+  try { fn() } finally {
+    g.requestAnimationFrame = prevRaf
+    g.cancelAnimationFrame = prevCancel
+  }
+}
+
+test('setData({ animate: false }) skips the fade (no flash on incremental update)', () => {
+  const { ctx, calls } = makeMockCtx()
+  const tm = new CushionTreemap<TreemapNode>(makeMockCanvas(ctx), { theme: THEMES[0] })
+  withSyncRaf(4, () => { tm.setData(SAMPLE_ROOT, { animate: false }); tm.destroy() })
+  assert.ok((calls.putImageData ?? 0) >= 1, 'a repaint happened')
+  assert.equal(calls.fillRect ?? 0, 0, 'no fade-dim overlay drawn when animate:false')
+})
+
+test('setData(root) fades by default (new dataset)', () => {
+  const { ctx, calls } = makeMockCtx()
+  const tm = new CushionTreemap<TreemapNode>(makeMockCanvas(ctx), { theme: THEMES[0] })
+  withSyncRaf(6, () => { tm.setData(SAMPLE_ROOT); tm.destroy() })
+  assert.ok((calls.fillRect ?? 0) >= 1, 'fade-dim overlay drawn at least once when animating')
+})
+
+test('engine-level animate:false disables fade even without per-call opt', () => {
+  const { ctx, calls } = makeMockCtx()
+  const tm = new CushionTreemap<TreemapNode>(makeMockCanvas(ctx), { theme: THEMES[0], animate: false })
+  withSyncRaf(4, () => { tm.setData(SAMPLE_ROOT); tm.destroy() })   // default opt would normally fade
+  assert.equal(calls.fillRect ?? 0, 0, 'engine animate:false suppresses fade regardless of opts')
+})
+
+// ─── onContextMenu (right-click) hook ───────────────────────────────────────────
+//
+// DiskSniffer right-clicks a tile to open its own "Open folder / Reveal in Explorer"
+// menu. The engine must (a) fire onContextMenu with the tile under the cursor and
+// (b) call preventDefault so the browser's native menu doesn't also appear — but
+// ONLY when a handler is registered, otherwise the native menu must stay intact.
+
+// A canvas that actually records event listeners so we can dispatch to them.
+function makeListenerCanvas(ctx: unknown) {
+  const listeners: Record<string, Array<(e: unknown) => void>> = {}
+  return {
+    width: 240, height: 160,
+    getContext: () => ctx,
+    addEventListener(type: string, fn: (e: unknown) => void) { (listeners[type] ??= []).push(fn) },
+    removeEventListener(type: string, fn: (e: unknown) => void) {
+      listeners[type] = (listeners[type] ?? []).filter(f => f !== fn)
+    },
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 240, height: 160 }),
+    __fire(type: string, ev: unknown) { (listeners[type] ?? []).forEach(fn => fn(ev)) },
+  } as unknown as HTMLCanvasElement & { __fire(type: string, ev: unknown): void }
+}
+
+test('onContextMenu fires on right-click and suppresses the native menu', () => {
+  const { ctx } = makeMockCtx()
+  const canvas = makeListenerCanvas(ctx)
+  const tm = new CushionTreemap<TreemapNode>(canvas, { theme: THEMES[0], animate: false })
+  let fired = 0, prevented = 0
+  tm.onContextMenu = () => { fired++ }
+  withSyncRaf(6, () => {
+    tm.setData(SAMPLE_ROOT, { animate: false })
+    ;(canvas as unknown as { __fire(t: string, e: unknown): void })
+      .__fire('contextmenu', { clientX: 120, clientY: 80, preventDefault: () => { prevented++ } })
+    tm.destroy()
+  })
+  assert.equal(fired, 1, 'onContextMenu called once on right-click')
+  assert.equal(prevented, 1, 'preventDefault called → native browser menu suppressed')
+})
+
+test('right-click leaves the native menu intact when no onContextMenu handler is set', () => {
+  const { ctx } = makeMockCtx()
+  const canvas = makeListenerCanvas(ctx)
+  const tm = new CushionTreemap<TreemapNode>(canvas, { theme: THEMES[0], animate: false })
+  let prevented = 0
+  withSyncRaf(6, () => {
+    tm.setData(SAMPLE_ROOT, { animate: false })
+    ;(canvas as unknown as { __fire(t: string, e: unknown): void })
+      .__fire('contextmenu', { clientX: 120, clientY: 80, preventDefault: () => { prevented++ } })
+    tm.destroy()
+  })
+  assert.equal(prevented, 0, 'no handler → preventDefault NOT called, native menu stays')
 })

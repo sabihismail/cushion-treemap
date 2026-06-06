@@ -22,6 +22,14 @@ interface DemoNode extends TreemapNode {
 
 const isDir = (n: DemoNode) => n.__dir ?? !!(n.children && n.children.length > 0)
 
+interface SampleConfig {
+  build: () => DemoNode
+  containerLabel: string
+  leafLabel: string
+  leafLabelPlural: string
+  valueFmt: (v: number) => string
+}
+
 // ─── Sample dataset 1: deterministic synthetic disk (reproducible, no RNG drift)
 const EXT_BY_CAT: Record<string, string[]> = {
   video: ['mp4', 'mkv', 'mov'], audio: ['mp3', 'flac', 'wav'],
@@ -112,11 +120,13 @@ function solarSystem(): DemoNode {
   })
 }
 
-const SAMPLES: Record<string, () => DemoNode> = {
-  'Synthetic disk (C:)': syntheticDisk,
-  'node_modules': nodeModules,
-  'Solar System (generic data)': solarSystem,
+const SAMPLES: Record<string, SampleConfig> = {
+  'Synthetic disk (C:)': { build: syntheticDisk, containerLabel: 'folder', leafLabel: 'file', leafLabelPlural: 'files', valueFmt: fmtBytes },
+  'node_modules': { build: nodeModules, containerLabel: 'package', leafLabel: 'file', leafLabelPlural: 'files', valueFmt: fmtBytes },
+  'Solar System (generic data)': { build: solarSystem, containerLabel: 'system', leafLabel: 'body', leafLabelPlural: 'bodies', valueFmt: v => `${v.toLocaleString()} units` },
 }
+
+let currentMeta: SampleConfig = SAMPLES['Synthetic disk (C:)']
 
 // ─── Import adapter: accept several common JSON shapes ────────────────────────
 // Supports:
@@ -180,7 +190,7 @@ canvas.addEventListener('mousemove', (e) => {
   const total = (tm.getZoomStack().at(-1) ?? current).value
   const pct = total > 0 ? ((hovered.value / total) * 100).toFixed(1) : '?'
   tip.innerHTML = `<div class="n">${escapeHtml(hovered.name)}</div>` +
-    `<div class="m">${fmtBytes(hovered.value)} · ${pct}%${isDir(hovered) ? ' · folder' : ''}</div>`
+    `<div class="m">${currentMeta.valueFmt(hovered.value)} · ${pct}%${isDir(hovered) ? ` · ${currentMeta.containerLabel}` : ''}</div>`
   const r = wrap.getBoundingClientRect()
   let x = e.clientX - r.left + 14, y = e.clientY - r.top + 14
   if (x + 270 > r.width) x = e.clientX - r.left - 270
@@ -196,13 +206,15 @@ function fit() {
 new ResizeObserver(fit).observe(wrap)
 
 // ─── Load a dataset ────────────────────────────────────────────────────────────
-function load(root: DemoNode, label: string) {
+function load(root: DemoNode, label: string, meta?: SampleConfig) {
   current = root
+  if (meta) currentMeta = meta
   tm.setData(root)
   tm.drillOut(0)            // reset zoom + fire onZoomChange (rebuilds breadcrumb)
   fit()
+  renderLegend()
   const leaves = countLeaves(root)
-  setStatus(`${label} — ${fmtBytes(root.value)} · ${leaves.toLocaleString()} leaves`)
+  setStatus(`${label} — ${currentMeta.valueFmt(root.value)} · ${leaves.toLocaleString()} ${currentMeta.leafLabelPlural}`)
 }
 
 function countLeaves(n: DemoNode): number {
@@ -234,7 +246,7 @@ const legendEl = document.getElementById('legend') as HTMLDivElement
 function renderLegend() {
   if (tm.getColorMode() === 'folder-file') {
     const swatch = (v: string, label: string) => `<span><i style="background:var(${v})"></i>${label}</span>`
-    let html = swatch('--ct-folder', 'folder') + swatch('--ct-file', 'file')
+    let html = swatch('--ct-folder', currentMeta.containerLabel) + swatch('--ct-file', currentMeta.leafLabel)
     if (tm.getAccentTags()) html += `<span class="hint" style="opacity:.55">tags:</span>` +
       CATEGORY_KEYS.map(k => `<span><i style="background:var(--ct-cat-${k})"></i>${k}</span>`).join('')
     legendEl.innerHTML = html
@@ -267,7 +279,7 @@ accentChk.addEventListener('change', () => { tm.setAccentTags(accentChk.checked)
 // ─── Dataset picker ───────────────────────────────────────────────────────────
 const dsSel = document.getElementById('dataset') as HTMLSelectElement
 dsSel.innerHTML = Object.keys(SAMPLES).map(k => `<option value="${k}">${k}</option>`).join('')
-dsSel.addEventListener('change', () => load(SAMPLES[dsSel.value](), dsSel.value))
+dsSel.addEventListener('change', () => { const cfg = SAMPLES[dsSel.value]; load(cfg.build(), dsSel.value, cfg) })
 
 // ─── JSON import: file picker ─────────────────────────────────────────────────
 const fileInput = document.getElementById('file') as HTMLInputElement
@@ -319,4 +331,4 @@ colorModeSel.value = 'folder-file'
 cushionSel.value = 'bevel'
 themeSel.value = 'Manila'
 setTheme('Manila')
-load(current, 'Synthetic disk (C:)')
+load(current, 'Synthetic disk (C:)', SAMPLES['Synthetic disk (C:)'])

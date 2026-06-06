@@ -17,8 +17,8 @@ extension) on the same synthetic-disk dataset. Switch at runtime with
 | Catppuccin Mocha · *dark* | Tokyo Night · *dark* |
 |:---:|:---:|
 | ![Catppuccin Mocha](docs/themes/catppuccin-mocha.png) | ![Tokyo Night](docs/themes/tokyo-night.png) |
-| **Nord · *dark*** | **IBM Carbon · *dark*** |
-| ![Nord](docs/themes/nord.png) | ![IBM Carbon](docs/themes/ibm-carbon.png) |
+| **Nord · *dark*** | **Carbon · *dark*** |
+| ![Nord](docs/themes/nord.png) | ![Carbon](docs/themes/carbon.png) |
 | **Clean Light · *light*** | **Rosé Pine Dawn · *light*** |
 | ![Clean Light](docs/themes/clean-light.png) | ![Rosé Pine Dawn](docs/themes/rose-pine-dawn.png) |
 | **Manila · *light* — SpaceSniffer homage** | |
@@ -44,7 +44,7 @@ Both demos share one source (`demo/`) and include a **theme switcher** (all 6 th
 - **Two cushion styles** — smooth per-pixel *ridge*, or a crisp SpaceSniffer-style *bevel*.
 - **Hover glow, fade-in animation, and per-type accent tags** for a cute, crisp finish.
 - **7 built-in themes** (Catppuccin Mocha, Clean Light, Nord, Tokyo Night,
-  Rosé Pine Dawn, IBM Carbon, and **Manila** — a SpaceSniffer homage) + a `Theme`
+  Rosé Pine Dawn, Carbon, and **Manila** — a SpaceSniffer homage) + a `Theme`
   type to author your own.
 - **System-aware theming** (`prefers-color-scheme`) and CSS-variable projection
   for surrounding DOM chrome.
@@ -173,12 +173,29 @@ npm run typecheck
 
 ## Credits
 
+**Algorithms**
 - Cushion shading: J.J. van Wijk & H. van de Wetering, *Cushion Treemaps*, InfoVis 1999.
 - Squarified layout: M. Bruls, K. Huizing & J.J. van Wijk, *Squarified Treemaps*, 2000.
-- Palettes: [Catppuccin](https://catppuccin.com/), [Nord](https://www.nordtheme.com/),
-  [Tokyo Night](https://github.com/folke/tokyonight.nvim),
-  [Rosé Pine](https://rosepinetheme.com/), [IBM Carbon](https://carbondesignsystem.com/),
-  [Tailwind](https://tailwindcss.com/docs/colors).
+
+**Palettes.** The built-in themes reproduce color values from the following
+permissively-licensed color systems. Only the hex values are used — color values
+are facts and not themselves copyrightable; these credits are offered as a
+courtesy to the original authors.
+
+- [Catppuccin](https://catppuccin.com/) — MIT
+- [Nord](https://www.nordtheme.com/) — MIT
+- [Tokyo Night](https://github.com/folke/tokyonight.nvim) — MIT (originally Apache-2.0 VS Code theme)
+- [Rosé Pine](https://rosepinetheme.com/) — MIT
+- [Carbon](https://carbondesignsystem.com/) — palette values from the IBM Carbon Design System (Apache-2.0)
+- [Tailwind CSS colors](https://tailwindcss.com/docs/colors) — MIT
+
+The **Carbon** theme reproduces IBM Carbon palette values only. It is *not*
+affiliated with, sponsored by, or endorsed by IBM, and "IBM" and "Carbon" are
+trademarks of their respective owners.
+
+The **Manila** theme and the optional folder/file two-tone color mode are an
+independent visual homage to [SpaceSniffer](http://www.uderzo.it/main_products/space_sniffer/)
+by Uderzo Umberto — no code or assets are taken from it.
 
 ## License
 

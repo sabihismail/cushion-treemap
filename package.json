@@ -1,7 +1,7 @@
 {
   "name": "cushion-treemap",
   "version": "0.1.0",
-  "description": "Zero-dependency, framework-agnostic cushion treemap for HTML canvas, with a built-in switchable theme system (Catppuccin, Nord, Tokyo Night, Rosé Pine, IBM Carbon, Tailwind).",
+  "description": "Zero-dependency, framework-agnostic cushion treemap for HTML canvas, with a built-in switchable theme system (Catppuccin, Nord, Tokyo Night, Rosé Pine, Carbon, Tailwind).",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",

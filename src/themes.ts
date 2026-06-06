@@ -6,8 +6,11 @@
  * read/edit); the renderer converts them to RGB tuples once via {@link hexToRgb}
  * because the per-pixel cushion shader works on numeric channels, not CSS strings.
  *
- * Palettes are sourced from well-known, permissively-shared color systems
- * (Catppuccin, Nord, Tokyo Night, Rosé Pine, IBM Carbon, Tailwind).
+ * Palettes reproduce color values from well-known, permissively-licensed color
+ * systems (Catppuccin, Nord, Tokyo Night, Rosé Pine, Carbon, Tailwind). Color
+ * values are facts and not themselves copyrightable; sources are credited in the
+ * README. The "Carbon" theme reproduces IBM Carbon palette values only — not
+ * affiliated with or endorsed by IBM ("IBM" is a trademark of IBM Corp.).
  */
 
 export type CategoryKey =
@@ -112,7 +115,7 @@ export const THEMES: Theme[] = [
     cushion: { ...TL, lightZ: 12, height: 0.50, scaleFactor: 0.80, ambient: 0.18 },
   },
   {
-    name: 'IBM Carbon', mode: 'dark',
+    name: 'Carbon', mode: 'dark',
     categories: {
       video: '#4589ff', audio: '#a56eff', images: '#24a148', code: '#d2a106',
       docs: '#8a3ffc', archives: '#ff832b', executables: '#fa4d56', other: '#8d8d8d',
@@ -164,9 +167,18 @@ export function hexToRgb(hex: string): [number, number, number] {
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
 }
 
-/** Relative luminance (0–255) of an RGB tuple — Rec. 601 weights. */
+/**
+ * WCAG relative luminance (0–1) of an RGB tuple.
+ * More accurate than Rec.601 for contrast decisions — correctly identifies
+ * warm orange/amber tiles as light-enough for dark text.
+ * Threshold for equal contrast with black vs white is ~0.18.
+ */
 export function luminance(rgb: [number, number, number]): number {
-  return 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]
+  const lin = (c: number) => {
+    const s = c / 255
+    return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4)
+  }
+  return 0.2126 * lin(rgb[0]) + 0.7152 * lin(rgb[1]) + 0.0722 * lin(rgb[2])
 }
 
 /**

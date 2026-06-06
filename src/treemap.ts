@@ -697,7 +697,8 @@ export class CushionTreemap<T extends TreemapNode = TreemapNode> {
   }
 
   private labelColor(rgb: [number, number, number]): string {
-    return luminance(rgb) > 140 ? 'rgba(0,0,0,0.82)' : 'rgba(255,255,255,0.92)'
+    // 0.18 is the WCAG equal-contrast crossover point between black and white text.
+    return luminance(rgb) > 0.18 ? 'rgba(0,0,0,0.82)' : 'rgba(255,255,255,0.92)'
   }
 
   private drawLabels(nodes: LayoutNode<T>[]) {

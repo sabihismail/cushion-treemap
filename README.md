@@ -1,5 +1,7 @@
 # cushion-treemap
 
+> **AI-Assisted Development** — A significant portion of this project was built with [Claude Code](https://claude.ai/code) by Anthropic. Core implementation and features are AI-generated under human direction.
+
 A zero-dependency, framework-agnostic **cushion treemap** renderer for the HTML
 canvas — with a built-in switchable **theme system**.
 

@@ -97,6 +97,20 @@ interface LayoutNode<T extends TreemapNode> {
   children: LayoutNode<T>[]
 }
 
+// ─── Pixel-bounds helper ──────────────────────────────────────────────────────
+
+/**
+ * Compute the integer pixel span [p0, p1) for a tile edge, clamped to the canvas.
+ * `Math.round` can push the far edge one pixel past the buffer (e.g.
+ * `round(size - 0.4) === size`), so the upper bound is clamped to `size` and the
+ * lower bound to 0. Used by both shading paths to prevent ImageData OOB writes.
+ */
+export function pixelSpan(lo: number, hi: number, size: number): [number, number] {
+  const p0 = Math.max(0, Math.round(lo))
+  const p1 = Math.min(size, Math.round(hi))
+  return [p0, p1]
+}
+
 // ─── Cushion math (van Wijk) ──────────────────────────────────────────────────
 
 /** Accumulate a parabolic ridge onto the cushion surface coefficients. */
@@ -111,6 +125,7 @@ function addRidge(s: Float64Array, x0: number, y0: number, x1: number, y1: numbe
 function drawCushion(
   pixels: Uint8ClampedArray,
   stride: number,
+  canvasWidth: number, canvasHeight: number,
   x0: number, y0: number, x1: number, y1: number,
   s: Float64Array,
   rgb: [number, number, number],
@@ -119,10 +134,10 @@ function drawCushion(
 ) {
   const Is = 1 - Ia
   const [r, g, b] = rgb
-  const px0 = Math.max(0, Math.round(x0))
-  const py0 = Math.max(0, Math.round(y0))
-  const px1 = Math.round(x1)
-  const py1 = Math.round(y1)
+  // Clamp to canvas bounds: Math.round can push the right/bottom edge one pixel
+  // past the buffer (e.g. round(W - 0.4) === W), writing into the next row / OOB.
+  const [px0, px1] = pixelSpan(x0, x1, canvasWidth)
+  const [py0, py1] = pixelSpan(y0, y1, canvasHeight)
 
   for (let iy = py0; iy < py1; iy++) {
     const base = iy * stride
@@ -150,13 +165,13 @@ function drawCushion(
  */
 function drawBevel(
   pixels: Uint8ClampedArray, stride: number,
+  canvasWidth: number, canvasHeight: number,
   x0: number, y0: number, x1: number, y1: number,
   rgb: [number, number, number], depth: number,
 ) {
-  const px0 = Math.max(0, Math.round(x0))
-  const py0 = Math.max(0, Math.round(y0))
-  const px1 = Math.round(x1)
-  const py1 = Math.round(y1)
+  // Clamp to canvas bounds (see drawCushion): round can overshoot by one pixel.
+  const [px0, px1] = pixelSpan(x0, x1, canvasWidth)
+  const [py0, py1] = pixelSpan(y0, y1, canvasHeight)
   const dim = Math.max(0.62, 1 - depth * 0.05)
   const r = rgb[0] * dim, g = rgb[1] * dim, b = rgb[2] * dim
   const bw = (px1 - px0) > 6 && (py1 - py0) > 6 ? 2 : 1
@@ -182,6 +197,23 @@ function drawBevel(
 }
 
 // ─── Squarify worst-ratio ─────────────────────────────────────────────────────
+
+/**
+ * Compute how far the "free" corner advances after a row is flushed in squarify.
+ * The free area shrinks by the row's share `rowSum / remainingTotal` along its
+ * longer side. If `remainingTotal` has drifted to 0 (or below) via floating-point
+ * subtraction on the final row, `rowSum / remainingTotal` would be Infinity/NaN
+ * and poison every subsequent tile's coordinates — so we guard and advance by 0.
+ * Returned dx/dy are always finite.
+ */
+export function stripAdvance(
+  rowSum: number, remainingTotal: number, vW: number, vH: number,
+): { dx: number; dy: number } {
+  if (!(remainingTotal > 0)) return { dx: 0, dy: 0 }
+  const frac = rowSum / remainingTotal
+  if (vW >= vH) return { dx: frac * vW, dy: 0 }
+  return { dx: 0, dy: frac * vH }
+}
 
 function worstRatio(values: number[], rowSum: number, total: number, W: number, H: number): number {
   if (rowSum <= 0 || total <= 0 || W <= 0 || H <= 0) return Infinity
@@ -262,7 +294,14 @@ export class CushionTreemap<T extends TreemapNode = TreemapNode> {
 
   constructor(canvas: HTMLCanvasElement, options: TreemapOptions<T> = {}) {
     this.canvas = canvas
-    this.ctx = canvas.getContext('2d', { willReadFrequently: true })!
+    const ctx = canvas.getContext('2d', { willReadFrequently: true })
+    if (!ctx) {
+      throw new Error(
+        'cushion-treemap: failed to get a 2D rendering context from the canvas ' +
+        '(it may already be bound to a WebGL context, or 2D is unavailable in this environment)',
+      )
+    }
+    this.ctx = ctx
     this.geom = {
       minPx: options.minPx ?? GEOM_DEFAULTS.minPx,
       headerHeight: options.headerHeight ?? GEOM_DEFAULTS.headerHeight,
@@ -558,8 +597,10 @@ export class CushionTreemap<T extends TreemapNode = TreemapNode> {
         } else {
           flushRow()
           const vW = cx1 - vx0, vH = cy1 - vy0
-          if (vW >= vH) vx0 += (rowSum / remainingTotal) * vW
-          else          vy0 += (rowSum / remainingTotal) * vH
+          // Guard against floating-point drift draining remainingTotal to 0 on the
+          // final row: rowSum / 0 → Infinity/NaN would poison every later tile.
+          const adv = stripAdvance(rowSum, remainingTotal, vW, vH)
+          vx0 += adv.dx; vy0 += adv.dy
           remainingTotal -= rowSum
           row = [node]; rowSum = node.value
         }
@@ -621,8 +662,8 @@ export class CushionTreemap<T extends TreemapNode = TreemapNode> {
       const bevel = this.cushionStyle === 'bevel'
 
       const paint = (n: LayoutNode<T>, x0: number, y0: number, x1: number, y1: number) => {
-        if (bevel) drawBevel(pixels, W, x0, y0, x1, y1, n.rgb, Math.max(0, n.depth))
-        else drawCushion(pixels, W, x0, y0, x1, y1, n.surface, n.rgb, Lx, Ly, Lz, Ia)
+        if (bevel) drawBevel(pixels, W, W, H, x0, y0, x1, y1, n.rgb, Math.max(0, n.depth))
+        else drawCushion(pixels, W, W, H, x0, y0, x1, y1, n.surface, n.rgb, Lx, Ly, Lz, Ia)
       }
 
       const renderNodes = (nodes: LayoutNode<T>[]) => {
@@ -696,9 +737,22 @@ export class CushionTreemap<T extends TreemapNode = TreemapNode> {
     draw(nodes)
   }
 
-  private labelColor(rgb: [number, number, number]): string {
+  private labelColor(cx: number, cy: number, fallback: [number, number, number]): string {
+    // Sample the actual post-shading pixel at the label centre for accurate contrast.
+    // Falls back to the base tile colour (e.g. during fade-in or cross-origin canvas).
+    let L: number
+    if (this.appear >= 1) {
+      try {
+        const px = this.ctx.getImageData(Math.max(0, Math.round(cx)), Math.max(0, Math.round(cy)), 1, 1).data
+        L = luminance([px[0], px[1], px[2]])
+      } catch {
+        L = luminance(fallback)
+      }
+    } else {
+      L = luminance(fallback)
+    }
     // 0.18 is the WCAG equal-contrast crossover point between black and white text.
-    return luminance(rgb) > 0.18 ? 'rgba(0,0,0,0.82)' : 'rgba(255,255,255,0.92)'
+    return L > 0.18 ? 'rgba(0,0,0,0.82)' : 'rgba(255,255,255,0.92)'
   }
 
   private drawLabels(nodes: LayoutNode<T>[]) {
@@ -716,14 +770,14 @@ export class CushionTreemap<T extends TreemapNode = TreemapNode> {
           if (w > 30 && hh > 7) {
             const fs = Math.min(11, hh - 5)
             ctx.font = `600 ${fs}px ${geom.fontFamily}`
-            ctx.fillStyle = this.labelColor(n.rgb)
+            ctx.fillStyle = this.labelColor(n.x0 + w / 2, n.y0 + hh / 2, n.rgb)
             ctx.fillText(`${n.node.name}  ${fmtBytes(n.node.value)}`, n.x0 + 4, n.y0 + hh / 2, w - 8)
           }
           draw(n.children)
         } else if (w > 36 && h > 14) {
           const fs = Math.min(10, h * 0.45)
           ctx.font = `${fs}px ${geom.fontFamily}`
-          ctx.fillStyle = this.labelColor(n.rgb)
+          ctx.fillStyle = this.labelColor(n.x0 + w / 2, n.y0 + h / 2, n.rgb)
           const name = n.node.name.length > 22 ? n.node.name.slice(0, 20) + '…' : n.node.name
           ctx.fillText(name, n.x0 + 3, n.y0 + h / 2, w - 6)
         }

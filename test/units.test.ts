@@ -5,7 +5,7 @@ import {
   THEMES, DEFAULT_THEME, CATEGORY_KEYS,
   getTheme, resolveSystemThemeName,
   hexToRgb, luminance, categoryForName, fmtBytes,
-  CushionTreemap,
+  CushionTreemap, pixelSpan, stripAdvance,
   type CategoryKey, type TreemapNode,
 } from '../src/index'
 
@@ -262,4 +262,142 @@ test('right-click leaves the native menu intact when no onContextMenu handler is
     tm.destroy()
   })
   assert.equal(prevented, 0, 'no handler → preventDefault NOT called, native menu stays')
+})
+
+// ─── REGRESSION: NaN propagation in squarify strip advance ──────────────────────
+//
+// Bug (ct-nan-squarify): the strip advance after flushing a row was the raw
+// expression `vx0 += (rowSum / remainingTotal) * vW`. When remainingTotal drains
+// to 0 (the final row exactly consumes the remaining area, or FP drift overshoots)
+// the division is Infinity/NaN and silently poisons every later tile's x/y/w/h.
+// The fix routes the advance through stripAdvance(), which guards `remainingTotal
+// > 0` and always returns finite dx/dy. These cases divide by exactly 0 / by a
+// negative drift value — they FAIL against the pre-fix inline math (Infinity/NaN)
+// and PASS with the guard.
+
+test('stripAdvance returns finite 0 when the final row exactly exhausts remaining area', () => {
+  // remainingTotal === rowSum on the last row → after this flush it would be 0;
+  // the OLD code divided by a remainingTotal that drift could land on exactly 0.
+  const a = stripAdvance(5, 0, 800, 600)         // exact zero → old: Infinity
+  assert.ok(Number.isFinite(a.dx) && Number.isFinite(a.dy), 'zero remainingTotal → finite advance')
+  assert.equal(a.dx, 0); assert.equal(a.dy, 0)
+
+  const neg = stripAdvance(5, -1e-12, 800, 600)  // drift overshoot → old: negative*huge or NaN territory
+  assert.ok(Number.isFinite(neg.dx) && Number.isFinite(neg.dy), 'negative remainingTotal → finite advance')
+  assert.equal(neg.dx, 0); assert.equal(neg.dy, 0)
+})
+
+test('stripAdvance computes the normal share along the longer side', () => {
+  // Wide region (vW >= vH): advance along x by the row's fractional share.
+  assert.deepEqual(stripAdvance(25, 100, 800, 600), { dx: 0.25 * 800, dy: 0 })
+  // Tall region (vW < vH): advance along y.
+  assert.deepEqual(stripAdvance(25, 100, 400, 600), { dx: 0, dy: 0.25 * 600 })
+})
+
+interface InspectableLayoutNode {
+  x0: number; y0: number; x1: number; y1: number
+  children: InspectableLayoutNode[]
+}
+
+function allRects(nodes: InspectableLayoutNode[], acc: InspectableLayoutNode[] = []): InspectableLayoutNode[] {
+  for (const n of nodes) {
+    acc.push(n)
+    if (n.children?.length) allRects(n.children, acc)
+  }
+  return acc
+}
+
+test('squarify produces finite coords when the final row exactly exhausts the area', () => {
+  const { ctx } = makeMockCtx()
+  // A canvas big enough that all leaves clear minPx, and enough siblings that
+  // multiple rows are flushed (so remainingTotal is decremented repeatedly).
+  const canvas = {
+    width: 800, height: 600,
+    getContext: () => ctx,
+    addEventListener() {}, removeEventListener() {},
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600 }),
+  } as unknown as HTMLCanvasElement
+
+  // Values chosen so the running float subtraction (remainingTotal -= rowSum) can
+  // reach ~0 on the final row. Many equal-ish leaves → several rows.
+  const children: TreemapNode[] = []
+  for (let i = 0; i < 24; i++) children.push({ name: `leaf${i}`, value: 0.1 })
+  const root: TreemapNode = { name: 'root', value: 2.4, children }
+
+  const tm = new CushionTreemap<TreemapNode>(canvas, { theme: THEMES[0], animate: false })
+  withSyncRaf(4, () => {
+    tm.setData(root, { animate: false })
+
+    // @ts-expect-error — reach into private layout for the assertion (test-only).
+    const rects = allRects(tm.layout as InspectableLayoutNode[])
+    assert.ok(rects.length > 1, 'layout produced multiple tiles')
+    for (const r of rects) {
+      for (const [k, v] of Object.entries({ x0: r.x0, y0: r.y0, x1: r.x1, y1: r.y1 })) {
+        assert.ok(Number.isFinite(v), `tile coord ${k}=${v} must be finite (no NaN/Infinity)`)
+      }
+      const w = r.x1 - r.x0, h = r.y1 - r.y0
+      assert.ok(Number.isFinite(w) && Number.isFinite(h), `tile w/h must be finite (w=${w}, h=${h})`)
+    }
+    tm.destroy()
+  })
+})
+
+// ─── REGRESSION: ImageData out-of-bounds write (pixel-span clamp) ────────────────
+//
+// Bug (ct-imagedata-oob): px1/py1 = Math.round(edge) can round UP to size+1
+// (e.g. round(W - 0.4) === W is fine, but a tile edge at W + 0.4 → W+1), so the
+// inner pixel loop writes one index past the Uint8ClampedArray, silently
+// corrupting the first pixel of the next row. The clamp helper must never return
+// an upper bound exceeding `size`, on BOTH the x and y axes.
+
+test('pixelSpan clamps the upper bound to canvas size (x and y)', () => {
+  // Edge fractionally above the boundary would round up past the buffer.
+  assert.deepEqual(pixelSpan(0, 800.4, 800), [0, 800], 'x1 clamped to width, not 801')
+  assert.deepEqual(pixelSpan(0, 600.6, 600), [0, 600], 'y1 clamped to height, not 601')
+  // The realistic FP-drift case: round(size - 0.4) === size (already at the edge),
+  // and anything above stays clamped.
+  assert.deepEqual(pixelSpan(0, 800 - 0.4, 800), [0, 800], 'edge at size stays size')
+  assert.deepEqual(pixelSpan(0, 1000, 800), [0, 800], 'far overshoot clamped')
+  // Lower bound never goes negative.
+  assert.deepEqual(pixelSpan(-5, 10, 800), [0, 10], 'lo clamped to 0')
+})
+
+test('pixelSpan guarantees the max write index stays within the ImageData buffer', () => {
+  // Simulate the worst case: a tile whose right edge sits just past the canvas.
+  const W = 240, H = 160
+  const buf = new Uint8ClampedArray(W * H * 4)
+  const [px0, px1] = pixelSpan(0, W + 0.4, W)   // would be W+1 without the clamp
+  const [py0, py1] = pixelSpan(0, H + 0.4, H)
+  // Highest index the (base + ix) << 2 write can touch, +3 for alpha.
+  const maxIdx = ((py1 - 1) * W + (px1 - 1)) * 4 + 3
+  assert.ok(px0 >= 0 && py0 >= 0, 'lower bounds non-negative')
+  assert.equal(px1, W, 'x upper bound clamped to width')
+  assert.equal(py1, H, 'y upper bound clamped to height')
+  assert.ok(maxIdx < buf.length, `max write index ${maxIdx} stays < buffer length ${buf.length}`)
+})
+
+// ─── REGRESSION: getContext('2d') null → descriptive throw ───────────────────────
+//
+// Bug (ct-getcontext-null): the constructor used `getContext('2d')!`, which throws
+// an opaque "Cannot read properties of null" when 2D is unavailable (WebGL-bound
+// canvas, low-memory Safari, many test/headless environments). The constructor
+// must instead throw a clear, descriptive Error.
+
+test('constructor throws a descriptive error when getContext returns null', () => {
+  const nullCtxCanvas = {
+    width: 240, height: 160,
+    getContext: () => null,            // simulate WebGL-bound / unavailable 2D
+    addEventListener() {}, removeEventListener() {},
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 240, height: 160 }),
+  } as unknown as HTMLCanvasElement
+
+  assert.throws(
+    () => new CushionTreemap<TreemapNode>(nullCtxCanvas),
+    (err: unknown) => {
+      assert.ok(err instanceof Error, 'throws an Error instance')
+      assert.match(err.message, /cushion-treemap/i, 'message names the library')
+      assert.match(err.message, /2D rendering context/i, 'message explains the failure')
+      return true
+    },
+  )
 })

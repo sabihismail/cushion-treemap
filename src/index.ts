@@ -5,7 +5,7 @@
  * @packageDocumentation
  */
 
-export { CushionTreemap, fmtBytes } from './treemap'
+export { CushionTreemap, fmtBytes, pixelSpan, stripAdvance } from './treemap'
 export type { TreemapNode, TreemapOptions, ColorMode, CushionStyle } from './treemap'
 
 export {

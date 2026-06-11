@@ -5,7 +5,7 @@ import {
   THEMES, DEFAULT_THEME, CATEGORY_KEYS,
   getTheme, resolveSystemThemeName,
   hexToRgb, luminance, categoryForName, fmtBytes,
-  CushionTreemap, pixelSpan, stripAdvance,
+  CushionTreemap, pixelSpan, stripAdvance, validateRoot,
   type CategoryKey, type TreemapNode,
 } from '../src/index'
 
@@ -382,6 +382,109 @@ test('pixelSpan guarantees the max write index stays within the ImageData buffer
 // an opaque "Cannot read properties of null" when 2D is unavailable (WebGL-bound
 // canvas, low-memory Safari, many test/headless environments). The constructor
 // must instead throw a clear, descriptive Error.
+
+// ─── REGRESSION: validateRoot — value:0 / missing name ───────────────────────
+//
+// Bug (ct-zero-root): setData({name: undefined, value: 0}) rendered 'undefined'
+// labels and passed NaN/0 into layout arithmetic. validateRoot normalises both
+// before layout runs.
+
+test('validateRoot: missing name replaced with (unnamed)', () => {
+  // Simulate `name` being undefined at runtime (e.g. from a JS consumer).
+  const node = { name: undefined as unknown as string, value: 100 }
+  const result = validateRoot(node)
+  assert.equal(result.name, '(unnamed)', 'undefined name → "(unnamed)"')
+  assert.equal(result.value, 100, 'value unchanged')
+})
+
+test('validateRoot: value:0 kept as-is (valid degenerate root)', () => {
+  const node: TreemapNode = { name: 'root', value: 0, children: [{ name: 'a', value: 10 }] }
+  const result = validateRoot(node)
+  assert.equal(result.name, 'root')
+  assert.equal(result.value, 0, 'value:0 is valid — layout reads children totals, not root.value')
+})
+
+test('validateRoot: NaN value clamped to 0', () => {
+  const node = { name: 'root', value: NaN }
+  const result = validateRoot(node)
+  assert.equal(result.value, 0, 'NaN clamped to 0')
+})
+
+test('validateRoot: negative value clamped to 0', () => {
+  const node = { name: 'root', value: -42 }
+  const result = validateRoot(node)
+  assert.equal(result.value, 0, 'negative clamped to 0')
+})
+
+test('validateRoot: valid node returned unchanged (identity shortcut)', () => {
+  const node: TreemapNode = { name: 'good', value: 50 }
+  const result = validateRoot(node)
+  assert.strictEqual(result, node, 'same reference returned when no fix needed')
+})
+
+test('setData with undefined name does not render "undefined" label', () => {
+  const { ctx } = makeMockCtx()
+  const canvas = makeMockCanvas(ctx)
+  const tm = new CushionTreemap<TreemapNode>(canvas, { theme: THEMES[0], animate: false })
+  // Pass root with undefined name — should not throw, and layout should proceed.
+  const badRoot = { name: undefined as unknown as string, value: 100, children: [{ name: 'child', value: 100 }] }
+  assert.doesNotThrow(() => {
+    withSyncRaf(4, () => { tm.setData(badRoot as unknown as TreemapNode, { animate: false }); tm.destroy() })
+  }, 'setData with undefined name must not throw')
+})
+
+test('setData with value:0 root and positive children lays out normally', () => {
+  const { ctx } = makeMockCtx()
+  const canvas = {
+    width: 400, height: 300,
+    getContext: () => ctx,
+    addEventListener() {}, removeEventListener() {},
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 400, height: 300 }),
+  } as unknown as HTMLCanvasElement
+  const tm = new CushionTreemap<TreemapNode>(canvas, { theme: THEMES[0], animate: false })
+  const root: TreemapNode = { name: 'root', value: 0, children: [{ name: 'a', value: 60 }, { name: 'b', value: 40 }] }
+  withSyncRaf(4, () => {
+    tm.setData(root, { animate: false })
+    // @ts-expect-error — access private layout for assertion
+    const rects = allRects(tm.layout as InspectableLayoutNode[])
+    assert.ok(rects.length > 1, 'value:0 root with positive children still produces tiles')
+    tm.destroy()
+  })
+})
+
+// ─── GC-pressure: squarify pre-computed rowValues ────────────────────────────
+//
+// Bug (ct-gc-pressure): the hot inner loop called row.map(n => n.value) and
+// newRow.map(n => n.value) on every iteration — two O(n) array allocs per node.
+// Fix: maintain a parallel rowValues array, avoiding the map() calls entirely.
+// Regression: layout must produce the same number of finite tiles as before.
+
+test('squarify: rowValues optimization produces correct finite tile count', () => {
+  const { ctx } = makeMockCtx()
+  const canvas = {
+    width: 800, height: 600,
+    getContext: () => ctx,
+    addEventListener() {}, removeEventListener() {},
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600 }),
+  } as unknown as HTMLCanvasElement
+  // 30 nodes with varied sizes to exercise multiple row flushes.
+  const children: TreemapNode[] = []
+  for (let i = 0; i < 30; i++) children.push({ name: `n${i}`, value: Math.pow(2, i % 5 + 1) })
+  const root: TreemapNode = { name: 'root', value: children.reduce((s, c) => s + c.value, 0), children }
+  const tm = new CushionTreemap<TreemapNode>(canvas, { theme: THEMES[0], animate: false })
+  withSyncRaf(4, () => {
+    tm.setData(root, { animate: false })
+    // @ts-expect-error
+    const rects = allRects(tm.layout as InspectableLayoutNode[])
+    assert.ok(rects.length > 5, 'multiple tiles produced')
+    for (const r of rects) {
+      for (const [k, v] of Object.entries({ x0: r.x0, y0: r.y0, x1: r.x1, y1: r.y1 })) {
+        assert.ok(Number.isFinite(v), `coord ${k}=${v} must be finite after rowValues optimization`)
+      }
+    }
+    tm.destroy()
+  })
+})
 
 test('constructor throws a descriptive error when getContext returns null', () => {
   const nullCtxCanvas = {

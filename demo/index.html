@@ -46,7 +46,7 @@
         background: color-mix(in srgb, var(--ct-header, #313244) 55%, transparent);
       }
       .crumbs { display: flex; align-items: center; gap: 2px; flex-wrap: wrap; font-size: 13px; }
-      .crumbs button { background: none; border: none; padding: 2px 4px; color: #a78bfa; }
+      .crumbs button { background: none; border: none; padding: 2px 4px; color: var(--ct-accent, #a78bfa); }
       .crumbs button:last-child { color: var(--ct-text, #cdd6f4); cursor: default; }
       .crumbs .sep { opacity: .4; }
       .legend { display: flex; gap: 13px; flex-wrap: wrap; margin-left: auto; }
@@ -72,13 +72,13 @@
         border: 2px dashed #a78bfa; border-radius: 12px;
         align-items: center; justify-content: center; text-align: center;
         background: color-mix(in srgb, var(--ct-bg, #1e1e2e) 70%, transparent);
-        font-size: 16px; font-weight: 600; color: #c4b5fd;
+        font-size: 16px; font-weight: 600; color: var(--ct-accent, #c4b5fd);
       }
       #wrap.dragging #drop { display: flex; }
 
       .hint { font-size: 12px; opacity: .55; }
       .status { font-size: 12px; opacity: .7; }
-      .err { color: #f38ba8; }
+      .err { color: var(--ct-cat-executables, #f38ba8); }
     </style>
   </head>
   <body>

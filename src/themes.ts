@@ -58,6 +58,12 @@ export interface Theme {
   text: string
   /** Hover border + subtle separators. */
   border: string
+  /**
+   * Interactive accent — link/highlight color that reads clearly on both
+   * `background` and `header`. Used for breadcrumb active links, drop overlays,
+   * and any chrome element that needs a theme-appropriate pop of color.
+   */
+  accent: string
   cushion: CushionParams
 }
 
@@ -72,6 +78,7 @@ export const THEMES: Theme[] = [
     },
     folder: '#fab387', file: '#89b4fa',
     background: '#1e1e2e', header: '#313244', text: '#cdd6f4', border: '#45475a',
+    accent: '#a78bfa',
     cushion: { ...TL, lightZ: 10, height: 0.62, scaleFactor: 0.78, ambient: 0.34 },
   },
   {
@@ -82,6 +89,7 @@ export const THEMES: Theme[] = [
     },
     folder: '#f59e0b', file: '#3b82f6',
     background: '#f8fafc', header: '#e2e8f0', text: '#0f172a', border: '#cbd5e1',
+    accent: '#2563eb',
     cushion: { ...TL, lightZ: 12, height: 0.55, scaleFactor: 0.78, ambient: 0.16 },
   },
   {
@@ -92,6 +100,7 @@ export const THEMES: Theme[] = [
     },
     folder: '#d08770', file: '#81a1c1',
     background: '#2e3440', header: '#3b4252', text: '#eceff4', border: '#4c566a',
+    accent: '#88c0d0',
     cushion: { ...TL, lightZ: 11, height: 0.58, scaleFactor: 0.78, ambient: 0.30 },
   },
   {
@@ -102,6 +111,7 @@ export const THEMES: Theme[] = [
     },
     folder: '#ff9e64', file: '#7aa2f7',
     background: '#1a1b26', header: '#24283b', text: '#c0caf5', border: '#3b4261',
+    accent: '#7aa2f7',
     cushion: { ...TL, lightZ: 9, height: 0.66, scaleFactor: 0.76, ambient: 0.32 },
   },
   {
@@ -112,6 +122,7 @@ export const THEMES: Theme[] = [
     },
     folder: '#ea9d34', file: '#56949f',
     background: '#faf4ed', header: '#f2e9e1', text: '#575279', border: '#dfdad9',
+    accent: '#286983',
     cushion: { ...TL, lightZ: 12, height: 0.50, scaleFactor: 0.80, ambient: 0.18 },
   },
   {
@@ -122,6 +133,7 @@ export const THEMES: Theme[] = [
     },
     folder: '#ff832b', file: '#4589ff',
     background: '#161616', header: '#262626', text: '#f4f4f4', border: '#393939',
+    accent: '#4589ff',
     cushion: { ...TL, lightZ: 10, height: 0.60, scaleFactor: 0.78, ambient: 0.30 },
   },
   {
@@ -133,6 +145,7 @@ export const THEMES: Theme[] = [
     },
     folder: '#d7b27e', file: '#7fb0e6',
     background: '#eceae3', header: '#d8c49a', text: '#3a3326', border: '#b29b73',
+    accent: '#3f7fc4',
     cushion: { ...TL, lightZ: 13, height: 0.46, scaleFactor: 0.82, ambient: 0.20 },
   },
 ]
@@ -199,6 +212,7 @@ export function applyThemeVars(theme: Theme, element?: HTMLElement): void {
   const [r, g, b] = hexToRgb(theme.text)
   s.setProperty('--ct-text-dim', `rgba(${r},${g},${b},0.55)`)
   s.setProperty('--ct-border', theme.border)
+  s.setProperty('--ct-accent', theme.accent)
   s.setProperty('--ct-folder', theme.folder)
   s.setProperty('--ct-file', theme.file)
   for (const k of CATEGORY_KEYS) s.setProperty(`--ct-cat-${k}`, theme.categories[k])

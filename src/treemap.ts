@@ -231,6 +231,31 @@ function worstRatio(values: number[], rowSum: number, total: number, W: number, 
   return worst
 }
 
+// ─── Input validation ─────────────────────────────────────────────────────────
+
+/**
+ * Validate and normalise a root node before layout.
+ *
+ * Guards two silent-failure modes:
+ * - `name` missing / undefined → replaced with `"(unnamed)"` so labels never
+ *   render the string `"undefined"`.
+ * - `value` missing, NaN, or negative → clamped to 0 so downstream arithmetic
+ *   sees a safe zero rather than NaN/negative, which would corrupt the layout.
+ *
+ * Children are not recursively validated here for performance; the squarify
+ * loop already skips `value <= 0` leaves.
+ */
+export function validateRoot<T extends TreemapNode>(root: T): T {
+  const name = (root.name != null && String(root.name) !== 'undefined')
+    ? root.name
+    : '(unnamed)'
+  const value = (typeof root.value === 'number' && isFinite(root.value) && root.value >= 0)
+    ? root.value
+    : 0
+  if (name === root.name && value === root.value) return root
+  return { ...root, name, value }
+}
+
 // ─── Main class ───────────────────────────────────────────────────────────────
 
 export class CushionTreemap<T extends TreemapNode = TreemapNode> {
@@ -409,7 +434,7 @@ export class CushionTreemap<T extends TreemapNode = TreemapNode> {
    * re-fade on every update — which otherwise reads as constant flashing.
    */
   setData(root: T, opts?: { animate?: boolean }) {
-    this.root = root
+    this.root = validateRoot(root)
     this.relayout()
     const fade = (opts?.animate ?? true) && this.animate
     if (fade) {
@@ -519,6 +544,9 @@ export class CushionTreemap<T extends TreemapNode = TreemapNode> {
     const g = this.geom
 
     let row: T[] = []
+    // rowValues mirrors row — pre-computed values so worstRatio callers don't
+    // call row.map(n => n.value) on every iteration (O(n) array alloc × per node).
+    let rowValues: number[] = []
     let rowSum = 0
     let remainingTotal = total
     let vx0 = cx0, vy0 = cy0
@@ -586,15 +614,22 @@ export class CushionTreemap<T extends TreemapNode = TreemapNode> {
       if (W < g.minPx || H < g.minPx) break
 
       if (row.length === 0) {
-        row.push(node); rowSum += node.value
+        row.push(node); rowValues.push(node.value); rowSum += node.value
       } else {
-        const newRow = [...row, node]
         const newSum = rowSum + node.value
-        const curW = worstRatio(row.map(n => n.value), rowSum, remainingTotal, W, H)
-        const newW = worstRatio(newRow.map(n => n.value), newSum, remainingTotal, W, H)
+        // Pass pre-computed rowValues directly — avoids row.map(n => n.value)
+        // which allocates a new array on every iteration (O(n) GC pressure in
+        // the inner loop of a potentially large dataset).
+        const curW = worstRatio(rowValues, rowSum, remainingTotal, W, H)
+        // For the candidate row we need values including the new node.
+        // Temporarily push, compare, then pop if we flush instead.
+        rowValues.push(node.value)
+        const newW = worstRatio(rowValues, newSum, remainingTotal, W, H)
         if (newW <= curW) {
-          row.push(node); rowSum += node.value
+          row.push(node); rowSum = newSum
+          // rowValues already has node.value pushed above — keep it.
         } else {
+          rowValues.pop() // remove the tentative push before flushing
           flushRow()
           const vW = cx1 - vx0, vH = cy1 - vy0
           // Guard against floating-point drift draining remainingTotal to 0 on the
@@ -602,7 +637,7 @@ export class CushionTreemap<T extends TreemapNode = TreemapNode> {
           const adv = stripAdvance(rowSum, remainingTotal, vW, vH)
           vx0 += adv.dx; vy0 += adv.dy
           remainingTotal -= rowSum
-          row = [node]; rowSum = node.value
+          row = [node]; rowValues = [node.value]; rowSum = node.value
         }
       }
     }

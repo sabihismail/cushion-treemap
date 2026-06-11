@@ -59,6 +59,26 @@ Both demos share one source (`demo/`) and include a **theme switcher** (all 6 th
 npm install cushion-treemap
 ```
 
+### Consuming from source (monorepo / sibling directory)
+
+If you're linking directly from another project in the same repo (e.g. DiskSniffer),
+skip npm install and use a Vite alias instead:
+
+```ts
+// vite.config.ts in the consuming project
+import path from 'path'
+export default {
+  resolve: {
+    alias: { 'cushion-treemap': path.resolve(__dirname, '../../cushion-treemap/src/index.ts') }
+  }
+}
+```
+
+Mirror it in `tsconfig.json`:
+```json
+{ "compilerOptions": { "paths": { "cushion-treemap": ["../../cushion-treemap/src/index.ts"] } } }
+```
+
 ## Quick start
 
 ```ts
